@@ -14,16 +14,23 @@ prompt is iterated on.
 
 ## Status
 
-**Phase 1 (this commit):** ingestion endpoint, Claude classifier, decision
-logging to Postgres. Working end to end against mocked dependencies in the
-test suite.
+**Phase 1:** ingestion endpoint, Claude classifier, decision logging to
+Postgres. Confirmed working end to end against a live database and the
+real Claude API.
+
+**Phase 2:** folded into Phase 1 from the start - every decision already
+logs latency, prompt version, model name, and the full raw model response.
+
+**Phase 3 (this commit):** a 20-case hand-labeled golden dataset
+(`eval/golden_dataset.json`) and an eval harness (`eval/run_eval.py`) that
+runs the classifier against it, reports category/urgency/action accuracy
+plus a confusion matrix, and saves each run's scores to the `eval_runs`
+table so accuracy can be tracked across prompt versions over time. The
+scoring logic itself is unit tested (`tests/test_eval_scoring.py`) with
+fixed inputs, independent of how the classifier is actually performing.
 
 **Coming next:**
-- Phase 2 - richer observability logging (already mostly in place: latency,
-  prompt version, raw model response are all captured from the start)
-- Phase 3 - golden dataset + eval harness + accuracy tracking over prompt
-  versions
-- Phase 4 - a small dashboard over `agent_decisions` and eval history
+- Phase 4 - a small dashboard over `agent_decisions` and `eval_runs` history
 
 ## Stack
 
@@ -56,6 +63,17 @@ python app.py
 ```bash
 pytest
 ```
+
+## Running the eval harness
+
+```bash
+python -m eval.run_eval
+```
+
+This runs all 20 golden-dataset cases through the real classifier (real API
+calls, small real cost), prints an accuracy report and confusion matrix,
+saves the summary to `eval_runs` in Postgres, and writes a detailed
+per-case breakdown to `eval_results/`.
 
 ## Manually testing the endpoint
 

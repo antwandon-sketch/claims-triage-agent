@@ -6,8 +6,11 @@ Phase 1 tables:
   agent_decisions  - what Claude decided about it, plus everything needed
                      for observability (prompt version, latency, raw response)
 
-Phase 3 will add eval_labels (the golden dataset) and eval_runs (score
-history) - not created yet, no need for them until the eval harness exists.
+Phase 3 adds eval_runs (score history) here. The golden dataset itself
+(eval/golden_dataset.json) deliberately lives as a version-controlled file,
+not a table - that's the normal convention for eval test data, since you
+want to review changes to your test cases the same way you'd review a diff
+to any other test file, not by querying a database.
 """
 import json
 import psycopg2
@@ -55,6 +58,22 @@ def init_db():
                     model_name TEXT NOT NULL,
                     latency_ms INTEGER,
                     raw_model_response JSONB
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS eval_runs (
+                    id SERIAL PRIMARY KEY,
+                    run_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    prompt_version TEXT NOT NULL,
+                    model_name TEXT NOT NULL,
+                    total_cases INTEGER NOT NULL,
+                    category_accuracy REAL NOT NULL,
+                    urgency_accuracy REAL NOT NULL,
+                    action_accuracy REAL NOT NULL,
+                    confusion_matrix JSONB,
+                    notes TEXT
                 );
                 """
             )
@@ -114,6 +133,40 @@ def save_decision(raw_email_id, decision, prompt_version, model_name, latency_ms
             decision_id = cur.fetchone()[0]
         conn.commit()
     return decision_id
+
+
+def save_eval_run(prompt_version, model_name, total_cases, category_accuracy,
+                   urgency_accuracy, action_accuracy, confusion_matrix, notes=None):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO eval_runs (
+                    prompt_version, model_name, total_cases, category_accuracy,
+                    urgency_accuracy, action_accuracy, confusion_matrix, notes
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id;
+                """,
+                (
+                    prompt_version, model_name, total_cases, category_accuracy,
+                    urgency_accuracy, action_accuracy, json.dumps(confusion_matrix), notes,
+                ),
+            )
+            run_id = cur.fetchone()[0]
+        conn.commit()
+    return run_id
+
+
+def list_eval_runs(limit=20):
+    """Most recent eval runs first - this is the accuracy-over-time history."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM eval_runs ORDER BY run_at DESC LIMIT %s;",
+                (limit,),
+            )
+            return cur.fetchall()
 
 
 def list_decisions(limit=50):

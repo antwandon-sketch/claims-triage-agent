@@ -1,0 +1,182 @@
+[
+  {
+    "id": "case_01",
+    "subject": "House fire last night - need help",
+    "body": "There was an electrical fire in our garage last night, fire department put it out but there's smoke damage throughout the house and the garage is partially burned. Policy number HO-33210. We need somewhere to stay tonight, what do we do?",
+    "expected_category": "new_claim",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Active property damage plus displacement need - textbook high-urgency new claim."
+  },
+  {
+    "id": "case_02",
+    "subject": "Basement flooding right now",
+    "body": "Our sump pump failed during last night's storm and the basement has about 4 inches of standing water. It's still coming in. Policy PA-77410. What should we do immediately and how do we start a claim?",
+    "expected_category": "new_claim",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Active, worsening water damage."
+  },
+  {
+    "id": "case_03",
+    "subject": "Fender bender yesterday afternoon",
+    "body": "I was in a minor car accident yesterday, someone rear-ended me at a stop light. No one was hurt and both cars could still drive. I have the other driver's insurance info. Policy AU-90142. How do I file a claim?",
+    "expected_category": "new_claim",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Genuine new claim, but not an active emergency (happened yesterday, no injuries) - tests that new_claim doesn't automatically mean high urgency."
+  },
+  {
+    "id": "case_04",
+    "subject": "Break-in overnight - what do I do",
+    "body": "We came home this morning and someone had broken a back window and gone through our house. Some jewelry and electronics are missing. Policy HO-44582. We already called the police. What's the next step for our claim?",
+    "expected_category": "new_claim",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Fresh theft, ongoing distress, needs prompt handling."
+  },
+  {
+    "id": "case_05",
+    "subject": "Any update on my claim from two weeks ago?",
+    "body": "I filed a claim on June 30th for storm damage to my roof (claim number CL-8842) and haven't heard anything since the initial confirmation email. Is there someone I can talk to about where things stand?",
+    "expected_category": "claim_status",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Frustration from waiting is real but not an emergency - tests medium, not high, urgency."
+  },
+  {
+    "id": "case_06",
+    "subject": "Checking on claim status",
+    "body": "Just wanted to check in on the status of claim CL-9021 that I filed last week for a cracked windshield. No rush, just curious where it's at.",
+    "expected_category": "claim_status",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Explicitly low-pressure ('no rush') - a good candidate for an automated status-check reply."
+  },
+  {
+    "id": "case_07",
+    "subject": "I disagree with the settlement amount",
+    "body": "The adjuster just sent me a settlement offer for my kitchen fire claim (CL-7745) that's way lower than what the contractor quoted for repairs. I don't think this is fair and I need someone to actually talk to about this.",
+    "expected_category": "claim_status",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Not a new claim, but a serious dispute that needs a person - urgency can be high mid-claim, not just at filing."
+  },
+  {
+    "id": "case_08",
+    "subject": "Does my policy cover a rental car?",
+    "body": "If my car is in the shop after an accident, does my policy cover a rental car while it's being repaired? Policy AU-24417. Just want to know before I need it.",
+    "expected_category": "coverage_question",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Common, generic question with a standard policy-language answer - reasonable to auto-reply."
+  },
+  {
+    "id": "case_09",
+    "subject": "Small ceiling stain - covered?",
+    "body": "I noticed a small brownish stain on my bedroom ceiling. It's not wet or growing that I can tell. Policy HO-61830. Not sure if it's worth mentioning but wanted to ask if something like that would even be covered before I decide whether to do anything.",
+    "expected_category": "coverage_question",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Genuinely ambiguous - answering correctly needs this customer's specific policy language, not a guess."
+  },
+  {
+    "id": "case_10",
+    "subject": "Is jewelry covered under homeowners?",
+    "body": "My ring went missing sometime this week, not positive if it was stolen or I just lost it somewhere. Before I file anything, is jewelry even covered under my homeowners policy, and is there a limit?",
+    "expected_category": "coverage_question",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Higher stakes than a ceiling stain (valuable item, possible theft) but no active emergency - tests medium, not low or high."
+  },
+  {
+    "id": "case_11",
+    "subject": "Need to update my address",
+    "body": "We moved a few months ago and I don't think I ever updated the address on file for our auto policy AU-55310. Can you get that changed to 214 Birchwood Lane, Georgetown, TX?",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Routine administrative update."
+  },
+  {
+    "id": "case_12",
+    "subject": "Adding my son to my auto policy",
+    "body": "My son just got his license and I need to add him to my auto policy, AU-61029. He'll mostly be driving my older car. What do I need to send over?",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Adding a driver usually changes the premium and needs underwriting input - tests that policy_change doesn't automatically mean auto_reply."
+  },
+  {
+    "id": "case_13",
+    "subject": "I want to cancel my policy",
+    "body": "I found a cheaper rate somewhere else and want to cancel my homeowners policy, HO-20981, effective as soon as possible.",
+    "expected_category": "policy_change",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A cancellation is a policy change but almost always warrants a human retention conversation, not an automatic 'done'."
+  },
+  {
+    "id": "case_14",
+    "subject": "Increase my coverage amount",
+    "body": "We just finished a kitchen remodel and want to increase the dwelling coverage limit on our homeowners policy, HO-39215, to reflect the higher home value. What's the process?",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Routine, common, low-stakes request - unlike the cancellation above."
+  },
+  {
+    "id": "case_15",
+    "subject": "Nobody has called me back",
+    "body": "I've left three voicemails for my agent over the past week and haven't heard back at all. I'm getting pretty frustrated at this point and just want someone to actually respond.",
+    "expected_category": "other",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A service complaint, not a claim or coverage question - tests that the model doesn't force this into a claim-related category."
+  },
+  {
+    "id": "case_16",
+    "subject": "Are you open on Saturdays?",
+    "body": "Quick question - is your office open on Saturdays, and if so what time?",
+    "expected_category": "other",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Simple factual, non-policy question - fine for an automated reply."
+  },
+  {
+    "id": "case_17",
+    "subject": "Application for office position",
+    "body": "Hi, I saw you're hiring for a front desk position and wanted to send my resume over. Let me know if you need anything else from me!",
+    "expected_category": "other",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Unrelated to claims/coverage - needs a human to route to whoever's hiring."
+  },
+  {
+    "id": "case_18",
+    "subject": "Interested in a quote",
+    "body": "Hi, I'm shopping around for homeowners insurance and was referred to your agency by a neighbor. Could someone reach out about getting a quote?",
+    "expected_category": "other",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A sales lead, not an existing-policyholder matter - needs a person for pricing, not an auto-reply."
+  },
+  {
+    "id": "case_19",
+    "subject": "Tree fell on our roof during the storm",
+    "body": "A large tree just came down on our roof during tonight's storm and there's a hole letting rain into the attic. We're worried about it getting worse overnight. Policy HO-71104.",
+    "expected_category": "new_claim",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Active, worsening damage from a named event."
+  },
+  {
+    "id": "case_20",
+    "subject": "Does my policy cover flooding?",
+    "body": "There's flooding happening a few streets over from us and I'm getting nervous. Does my homeowners policy cover flood damage, or do I need something separate? Water hasn't reached our house yet but I want to know before it does.",
+    "expected_category": "coverage_question",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "No damage yet, but flood coverage is a well-known gap in standard homeowners policies - needs an accurate answer, not a guess, and is time-pressured given nearby flooding."
+  }
+]

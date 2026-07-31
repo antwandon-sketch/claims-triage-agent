@@ -48,7 +48,7 @@ def inbound_email():
         raw_payload=payload,
     )
 
-    result = classify_email(body)
+    result = classify_email(subject, body)
 
     decision_id = db.save_decision(
         raw_email_id=raw_email_id,

@@ -77,11 +77,16 @@ SYSTEM_PROMPT = (
     "email and call classify_email with your assessment. Never invent a "
     "policy number, name, or date that isn't in the email - omit the field "
     "instead of guessing. When urgency is ambiguous, prefer the lower-risk "
-    "reading only if there is no plausible safety or property-damage concern."
+    "reading only if there is no plausible safety or property-damage concern. "
+    "For policy_change requests, escalate to a human anything that affects "
+    "underwriting risk or premium - adding or removing a driver, canceling a "
+    "policy, adding a newly insured property or vehicle. Routine "
+    "administrative changes (address or contact updates, dwelling coverage "
+    "increases with no new risk information) can be handled with auto_reply."
 )
 
 
-def classify_email(email_text: str) -> dict:
+def classify_email(subject: str, body: str) -> dict:
     """
     Returns a dict with keys:
       decision       - the parsed structured output (category, urgency, etc.)
@@ -89,7 +94,14 @@ def classify_email(email_text: str) -> dict:
       raw_response    - the full API response, for logging/observability
       prompt_version  - which prompt version produced this (from config)
       model_name      - which model produced this (from config)
+
+    Takes subject separately from body (rather than body alone, as Phase 1
+    originally did) because subject lines often carry real signal - "URGENT"
+    or "Re: still no response" changes the read on urgency even when the
+    body text alone looks routine.
     """
+    email_text = f"Subject: {subject or '(no subject)'}\n\n{body}"
+
     start = time.time()
     response = config.anthropic_client.messages.create(
         model=config.MODEL_NAME,
