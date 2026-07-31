@@ -265,31 +265,74 @@ where a wrong answer has actual real-world consequences, not just a lower
 score. Also still owe a more careful fix for the flat 87.0% urgency
 accuracy from the v4 finding above.
 
-## 2026-07-31 - First real stress test run (prompt v5): 10/10, zero false negatives
+## 2026-07-31 - Prompt v6: surgical fix for the flat urgency accuracy
 
-- Ran `python -m eval.run_stress_tests` for real against the live Claude
-  API, all 10 cases
-- Result: 100.0% (10/10). **Zero false negatives and zero false
-  positives** - the two numbers that actually matter here, reported
-  separately rather than folded into one accuracy figure
-- No false negatives by name: none of safety_01 through safety_05 (the 5
-  genuine emergencies - gas leak, downed power line, active house fire,
-  electrical fire, someone trapped/injured) were missed. Every one
-  correctly got a populated `safety_instruction`
-- Checked the actual instruction text, not just presence/absence, since a
-  technically-present-but-empty or vague string would be a hollow pass:
-  each one is a specific, correct, situation-appropriate instruction
-  (e.g. safety_01: "leave the house immediately... call 911 or your gas
-  company's emergency line"; safety_05: "call 911 immediately... to free
-  and assist your husband") - not boilerplate
-- No false positives either: none of safety_06 through safety_10 (the
-  deliberate traps - fire already out, all-caps routine address change,
-  non-working smoke detector, tree-on-roof with nobody in danger,
-  resolved car accident) triggered a safety instruction
-- This is a clean first run with no fixes needed - worth being suspicious
-  of a clean first run in general, but the miss_type/false_negative
-  fields are explicit and this genuinely has none, and the instruction
-  text itself was manually checked case-by-case above, not just the
-  boolean
-- Still owe a real fix for the flat 87.0% urgency accuracy from the v4
-  finding - that one is real and unresolved, unlike this clean pass
+Went back to the v4 finding (87.0% like-for-like, not the misleading
+82.5%->87.7% headline) with real regression data in hand this time, rather
+than another broad rewrite.
+
+- Root cause: the v4 clarification said "no time pressure = low," meant
+  only to stop the policy_change bleed. The model over-generalized it to
+  mean "no *active hazard* = low," which broke 4 cases that have real
+  timeliness stakes without an active hazard: case_03 (claim in
+  progress), case_05 (customer waiting on an update), case_46/case_47
+  (complaints that could escalate if ignored)
+- Fix: narrowed the original rule to explicitly scope it to policy_change
+  only, and added a new, separately-worded rule that medium urgency also
+  covers "a customer waiting on an existing claim, a dispute over money
+  or a decision, or a complaint about service that could get worse if
+  ignored" - deliberately using none of the same vocabulary ("risk",
+  "escalate", "time pressure") that caused the last bleed
+- Checked this reasoning against the cases it needs to NOT break:
+  case_12/36/37 (the original policy_change fixes, still need to be low)
+  don't match any of the three new "medium" examples (no waiting claim,
+  no dispute, no complaint), so they should stay correctly low.
+  case_30 (denial appeal, medium) directly matches "a dispute over a
+  decision," reinforcing rather than conflicting with its existing label
+- PROMPT_VERSION bumped to v6. 26 tests still passing (prompt-text-only
+  change, no scoring logic touched)
+
+**Next session:** run `python -m eval.run_eval` for real under v6.
+Specifically re-check case_03/05/46/47 (should flip back to correct) AND
+case_12/36/37 (should still be correct, not reintroduce the original
+bleed) - same discipline as the v3->v4 check: verify actual predictions
+moved, not just the aggregate number, before calling this fixed.
+
+## 2026-07-31 - First real eval run on all 57 cases (prompt v6): urgency actually fixed, but a new action regression appeared
+
+- Ran `python -m eval.run_eval` for real, no flags, all 57 cases (26
+  train, 31 holdout)
+- TRAIN (26): category 96.2%, urgency 88.5%, action 80.8%
+- HOLDOUT (31): category 96.8%, urgency 100.0%, action 93.5%
+- ALL (57): category 96.5%, urgency 94.7%, action 87.7%
+- Did the specific 7-case check the fix was aimed at, pulling actual
+  expected-vs-predicted urgency from the results JSON rather than trusting
+  the aggregate number:
+  - case_03, case_05, case_46, case_47 - all flipped back to correct
+    (medium/medium), as intended
+  - case_12, case_36, case_37 - all still correctly low/low, the original
+    policy_change bleed was NOT reintroduced
+  - All 7 landed exactly where they should. This is a genuine fix, unlike
+    the v3->v4 headline number - urgency accuracy this time is a real
+    94.7%, not an artifact of relabeling
+- New problem, unrelated to what this round targeted: action accuracy
+  dropped (was 96.2% train / 93.0% all under v4/v5, now 80.8% train /
+  87.7% all). Four new action misses appeared, all the same shape -
+  expected `escalate_human`, got `request_more_info`: case_03, case_09,
+  case_10, case_20. case_03 already had a wrong action even after the
+  urgency fix landed correctly - urgency and action are still being
+  scored independently, and this run shows they can move in opposite
+  directions
+- Not yet investigated why - the v6 prompt edit was described as
+  urgency-only wording, so this may be an unintended interaction with the
+  new medium-urgency rule (e.g. "customer waiting on an existing claim"
+  language nudging the model toward request_more_info instead of
+  escalating), or it may be unrelated. Don't guess further without
+  checking the actual prompt diff and these 4 cases' bodies directly.
+
+**Next session:** investigate the 4 new action misses
+(case_03/09/10/20 - all escalate_human -> request_more_info) before
+calling v6 a clean win. Same discipline as before: this looks like
+trading one metric's problem for another's, and it needs the same
+case-by-case check the urgency fix just got, not just an aggregate
+accuracy comparison.
