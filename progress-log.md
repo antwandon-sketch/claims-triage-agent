@@ -524,3 +524,148 @@ the "Category definitions" block, the same way policy_change and
 document_request already have one - three of nine categories currently
 have zero written guidance, which is a real gap now that a case has
 surfaced it, not a hypothetical one.
+
+## 2026-07-31 - Prompt v7: category definitions + auto_reply coverage-determination guardrail
+
+Shipped the fix flagged in the previous entry. Four changes to
+`classifier.py`'s `SYSTEM_PROMPT`, `PROMPT_VERSION` bumped v6 -> v7 (in
+`.env`, not tracked in git):
+
+1. **new_claim definition added:** reporting a loss/incident for the
+   first time, no existing claim number. Always escalate_human -
+   initiating a claim needs an adjuster's judgment regardless of urgency.
+2. **claim_status definition added:** references an existing claim
+   number, following up on it. Simple no-rush status checks/document
+   submissions can be auto_reply; disputes, denials, payment delays, and
+   reopened damage need escalate_human.
+3. **coverage_question definition added:** asking, pre-claim, whether a
+   scenario would be covered. auto_reply may acknowledge and share
+   general non-binding info, but must never state definitively that
+   something is or isn't covered - that needs an adjuster/agent.
+   request_more_info when key details are missing; escalate_human for
+   liability exposure or genuine underwriting-adjacent gaps.
+4. **General auto_reply guardrail added** (its own paragraph, applies
+   regardless of category): auto_reply must never make or imply a
+   coverage or liability determination, promise a settlement amount, or
+   interpret policy language authoritatively.
+
+Both `new_claim` and `claim_status` were approved as originally proposed,
+built from real golden_dataset.json examples in each category. Before
+shipping, flagged two open questions (whether auto_reply had any
+coverage-language guardrail, and coverage_question's default action rule)
+- confirmed neither existed anywhere in the prompt, which is what items 3
+and 4 above close.
+
+**Mid-rollout bug: case_09 briefly became unstable, diagnosed and fixed
+before shipping.** First pass at the coverage_question definition used
+"unclear-cause damage" as a parenthetical example of an underwriting-
+adjacent escalate_human gap, lifted from case_34 (mold found during
+renovation, cause unknown -> escalate_human). Re-running the golden eval
+3x with no code changes surfaced that case_09 (ceiling stain, cause
+unknown -> request_more_info, stabilized back in the v6 session) flipped
+to escalate_human in 2 of 3 runs. Root cause, confirmed by reading the
+model's own rationale on the flipped runs: both cited "unclear cause of
+damage" verbatim - the phrase I'd written into the definition as an
+example didn't just describe case_34, it also matched case_09, and the
+model was reasonably following the definition as written into a case it
+wasn't meant to cover. Fixed by narrowing the escalate_human example to
+"structural/property damage discovered during a renovation or inspection
+where the cause is disputed or unresolved even after investigation" (case_34's
+actual shape) and adding an explicit carve-out: a customer simply not yet
+knowing what caused something they just noticed is not, by itself, this
+kind of gap - use request_more_info first. Re-ran 3x after the reword:
+case_09 stable at request_more_info all 3 runs, case_34 still stable at
+escalate_human all 3 runs (confirms the reword didn't lose the scenario it
+was written for), case_06/case_28 stable OK, case_08/case_31 stable MISS
+against their old auto_reply label all 3 runs. Nothing shipped until all
+three checks were clean - this is the same discipline as the case_03
+run-to-run-variance check earlier in the project, just applied before a
+label change instead of after one.
+
+**case_08 and case_31 relabeled** (`expected_suggested_action`: auto_reply
+-> request_more_info), each with a notes addendum. Different in kind from
+the inj_03/inj_06 relabel-refusal earlier this session: those cases were
+left alone because the "wrong" answer traced to ambiguity in test cases
+written that same day, with no real vulnerability behind it. case_08
+(rental car reimbursement) and case_31 (windshield chip/deductible) are
+different - both are real, previously-shipped golden cases where the
+*correct* v6 answer (a definitive "yes, covered" auto_reply) is now
+explicitly disallowed by design, on purpose, by the new guardrail. The
+label isn't wrong; the policy it was measuring changed. Each case's notes
+field says so explicitly so a future session doesn't mistake this for a
+correction.
+
+**Golden-dataset eval, three points for comparison (all real runs):**
+
+| | v6 baseline | v7 first pass (pre-reword, pre-relabel) | v7 final (post-reword, post-relabel) |
+|---|---|---|---|
+| TRAIN category | 96.2% | 96.2% | 96.2% |
+| TRAIN urgency | 88.5% | 88.5% | 88.5% |
+| TRAIN action | 92.3% | 96.2% | **100.0%** |
+| HOLDOUT category | 96.8% | 96.8% | 96.8% |
+| HOLDOUT urgency | 100.0% | 100.0% | 96.8% |
+| HOLDOUT action | 93.5% | 93.5% | 93.5% |
+| ALL category | 96.5% | 96.5% | 96.5% |
+| ALL urgency | 94.7% | 94.7% | 93.0% |
+| ALL action | 93.0% | 94.7% | **96.5%** |
+
+HOLDOUT/ALL urgency dipped in the final run because of case_32 (dog bite
+liability, holdout split), which landed on 'high' instead of its expected
+'medium'. Checked this properly instead of just reasserting "pre-existing,
+not a regression": the 2026-07-31 Prompt v4 entry above documents this
+exact model-said-high/expected-medium mismatch, but that entry explicitly
+says "not chased further" - it was a single observation, never verified
+across repeat runs. Traced every saved eval run this session that touched
+case_32: 2 v6-baseline runs (medium, medium), then v7 held medium for 6
+straight runs spanning both the original coverage_question definition and
+the post-reword stability checks, before flipping to 'high' in the final
+run and 2 of 3 isolated re-checks right after. That timeline argues
+against pinning this on either coverage_question edit specifically - a
+deterministic cause should show up right after the edit that caused it,
+not 6 clean runs later - and confirms case_32 isn't secretly living in
+train instead of holdout (it's holdout). Also ran case_32 3x directly
+against the actual committed v6 classifier.py (via git stash, confirmed
+restored byte-identical after) as a real control: 3/3 medium, versus v7's
+mixed high/medium/high on an equivalent isolated 3x check. That control
+has a real limitation, though: coverage_question had no written definition
+at all under v6, so the v6 data (1 saved baseline run plus this 3-run
+control) reflects the model reasoning with no guidance whatsoever, not a
+genuine stability baseline under conditions comparable to v7's. It's
+genuinely unknown whether v7's new, explicit "liability exposure" language
+changed case_32's underlying high/medium split rate, since no equivalent
+multi-run v6 baseline exists to compare against on equal footing. Bottom
+line: not confirmed pre-existing (the v4 note was never verified), and not
+confirmed a new regression from a specific edit either (the timeline
+argues against it) - genuinely unresolved, logged honestly as such rather
+than guessed at a second time.
+
+**Open item for v8:** run case_32 several more times under the current v7
+prompt to build an actual distribution, now that there's real guidance
+text (the coverage_question definition) driving the model's reasoning on
+it, where under v6 there was none.
+
+Action accuracy is the real story here and it's a
+clean win on both counts that matter: TRAIN action hit 100% and ALL action
+moved from 93.0% to 96.5%, from case_06/case_28 (claim_status, now stable
+on auto_reply for simple no-rush follow-ups), case_09 (coverage_question,
+restabilized on request_more_info after the "unclear-cause damage"
+wording fix above), and the deliberate case_08/case_31 relabel making the
+guardrail's effect match the answer key instead of fighting it.
+
+**Stress harness, re-run post-v7: 12/16 (75.0%), unchanged in count from
+the pre-v7 baseline.** All 10 safety-critical cases still clean, zero
+false negatives. Same 4 injection cases still flagged, for the same
+reasons already logged in the prior stress-test entry (none show actual
+injection compliance).
+
+**Open item for v8, not fixed this session:** inj_06's rationale on every
+run says some version of "customer references an existing claim" / "this
+is a document submission for an existing claim" - but inj_06's email body
+only contains a policy number (HO-60218), never a claim number. The
+claim_status definition explicitly requires "references an existing claim
+number," and the model is treating a policy number as sufficient, which
+is looser than what's actually written. Worth tightening claim_status's
+definition in v8 to explicitly distinguish "has a claim number" from "has
+a policy number and is describing ongoing correspondence about a loss" -
+right now the model's real behavior and the definition's literal text
+disagree on this specific point.

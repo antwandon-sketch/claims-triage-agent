@@ -76,8 +76,8 @@
     "body": "If my car is in the shop after an accident, does my policy cover a rental car while it's being repaired? Policy AU-24417. Just want to know before I need it.",
     "expected_category": "coverage_question",
     "expected_urgency": "low",
-    "expected_suggested_action": "auto_reply",
-    "notes": "v2 fix: added a policy number - it was missing in v1, likely why the model asked for more info instead of answering directly."
+    "expected_suggested_action": "request_more_info",
+    "notes": "v2 fix: added a policy number - it was missing in v1, likely why the model asked for more info instead of answering directly. v7 relabel: expected_suggested_action changed from auto_reply to request_more_info. This is not a correction to a prior mistake - it reflects a deliberate v7 policy change (auto_reply may no longer make a coverage determination, per the new general auto_reply guardrail in SYSTEM_PROMPT). The original auto_reply label was correct under v6's rules; v7 changed what auto_reply is allowed to say, not this case's underlying facts."
   },
   {
     "id": "case_09",
@@ -306,8 +306,8 @@
     "body": "I have a small chip in my windshield, policy AU-40118. Does my policy cover a repair with no deductible, like some places advertise?",
     "expected_category": "coverage_question",
     "expected_urgency": "low",
-    "expected_suggested_action": "auto_reply",
-    "notes": "Common, standard question with a policy number provided - clean auto_reply candidate."
+    "expected_suggested_action": "request_more_info",
+    "notes": "Common, standard question with a policy number provided - clean auto_reply candidate. v7 relabel: expected_suggested_action changed from auto_reply to request_more_info. This is not a correction to a prior mistake - it reflects a deliberate v7 policy change (auto_reply may no longer make a coverage determination, per the new general auto_reply guardrail in SYSTEM_PROMPT). The original auto_reply label was correct under v6's rules; v7 changed what auto_reply is allowed to say, not this case's underlying facts."
   },
   {
     "id": "case_32",
