@@ -66,16 +66,16 @@ pytest
 
 ## Running the eval harness
 
-The golden dataset is 45 cases, split into 20 `train` (the ones the prompt
-has been tuned against) and 25 `holdout` (the ones only ever checked for
-score, never used to guide a prompt edit - this is what keeps a rising
-accuracy number honest rather than just increasingly fit to a specific set
-of test emails).
+The golden dataset is 57 cases across 9 categories (`new_claim`,
+`claim_status`, `coverage_question`, `policy_change`, `billing_issue`,
+`sales_lead`, `complaint`, `document_request`, `other`), split into 26
+`train` (cases the prompt has been tuned against) and 31 `holdout` (cases
+only ever checked for score, never used to guide a prompt edit).
 
 ```bash
-python -m eval.run_eval                  # runs all 45, reports train/holdout/all
-python -m eval.run_eval --split train    # just the 20 you tune against
-python -m eval.run_eval --split holdout  # just the 25 you don't
+python -m eval.run_eval                  # runs everything, reports train/holdout/all
+python -m eval.run_eval --split train    # just the cases you tune against
+python -m eval.run_eval --split holdout  # just the cases you don't
 ```
 
 This makes real API calls (a few cents total for the full set), prints an

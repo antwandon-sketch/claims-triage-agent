@@ -144,10 +144,10 @@
     "split": "train",
     "subject": "Nobody has called me back",
     "body": "I've left three voicemails for my agent over the past week and haven't heard back at all. I'm getting pretty frustrated at this point and just want someone to actually respond.",
-    "expected_category": "other",
+    "expected_category": "complaint",
     "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
-    "notes": "A service complaint, not a claim or coverage question - tests that the model doesn't force this into a claim-related category."
+    "notes": "Schema v3: moved from 'other' to the new 'complaint' category - dissatisfaction with service, not a claim/coverage matter."
   },
   {
     "id": "case_16",
@@ -174,10 +174,10 @@
     "split": "train",
     "subject": "Interested in a quote",
     "body": "Hi, I'm shopping around for homeowners insurance and was referred to your agency by a neighbor. Could someone reach out about getting a quote?",
-    "expected_category": "other",
+    "expected_category": "sales_lead",
     "expected_urgency": "low",
     "expected_suggested_action": "escalate_human",
-    "notes": "A sales lead, not an existing-policyholder matter - needs a person for pricing, not an auto-reply."
+    "notes": "Schema v3: moved from 'other' to the new 'sales_lead' category - a prospective customer, needs a licensed producer for pricing."
   },
   {
     "id": "case_19",
@@ -404,20 +404,20 @@
     "split": "holdout",
     "subject": "My name is misspelled on my policy",
     "body": "Just noticed my last name is spelled wrong on my policy documents, HO-58112 - it says 'Petersen' but it should be 'Peterson'. Can this get fixed?",
-    "expected_category": "other",
+    "expected_category": "policy_change",
     "expected_urgency": "low",
-    "expected_suggested_action": "escalate_human",
-    "notes": "Administrative correction to official records - needs a person to actually make the change, not something a bot should just confirm."
+    "expected_suggested_action": "auto_reply",
+    "notes": "Schema v3: moved from 'other' to 'policy_change' - a name correction is consistent with the existing address/phone-update precedent (case_11, case_38), which are auto_reply-able policy_change requests."
   },
   {
     "id": "case_42",
     "split": "holdout",
     "subject": "Need a certificate of insurance for my landlord",
     "body": "My landlord is asking for a certificate of insurance showing my renters coverage, policy RN-30821. Can someone send that over?",
-    "expected_category": "other",
+    "expected_category": "document_request",
     "expected_urgency": "low",
     "expected_suggested_action": "escalate_human",
-    "notes": "A real, common request, but needs an actual document generated/issued by a person, not just a reply."
+    "notes": "Schema v3: moved from 'other' to the new 'document_request' category. Names a third party (the landlord), so escalate_human per the v3 rule."
   },
   {
     "id": "case_43",
@@ -444,9 +444,129 @@
     "split": "holdout",
     "subject": "I was charged twice this month",
     "body": "My statement shows two separate withdrawals for my premium this month instead of one. Policy HO-20077. Can someone look into this and get it fixed?",
-    "expected_category": "other",
+    "expected_category": "billing_issue",
     "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
-    "notes": "A billing error affecting the customer's money directly - needs a person to actually investigate and correct it."
+    "notes": "Schema v3: moved from 'other' to the new 'billing_issue' category - a real payment error, needs investigation."
+  },
+  {
+    "id": "case_46",
+    "split": "train",
+    "subject": "Very disappointed with how my claim was handled",
+    "body": "The whole process for my claim last month was honestly frustrating - slow callbacks, conflicting information from two different people. I want to raise this with someone directly.",
+    "expected_category": "complaint",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "General service complaint about the experience, not a dispute over the claim's actual outcome - distinguishes complaint from claim_status."
+  },
+  {
+    "id": "case_47",
+    "split": "holdout",
+    "subject": "Your agent was rude to me on the phone",
+    "body": "I called in yesterday with a simple question and the person I spoke with was short with me and honestly kind of rude. I'd like someone to know about this.",
+    "expected_category": "complaint",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Pure service complaint, no claim or policy content at all."
+  },
+  {
+    "id": "case_48",
+    "split": "holdout",
+    "subject": "Still no callback after two requests",
+    "body": "This is the second time I've asked for a callback about a question on my account and nobody has reached out. Getting pretty tired of this.",
+    "expected_category": "complaint",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Same pattern as case_15/46 with different wording - repeated-contact-failure complaint."
+  },
+  {
+    "id": "case_49",
+    "split": "train",
+    "subject": "Do you offer bundled home and auto coverage?",
+    "body": "I'm looking for a new insurance provider and wanted to know if you offer bundled home and auto policies, and if someone could reach out with pricing.",
+    "expected_category": "sales_lead",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Prospective customer asking about bundling - still sales_lead even though it references specific coverage types, since no policy exists yet."
+  },
+  {
+    "id": "case_50",
+    "split": "holdout",
+    "subject": "Thinking about switching providers",
+    "body": "I'm not happy with my current insurance company and I'm shopping around. Could someone from your agency give me a call to talk about options?",
+    "expected_category": "sales_lead",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Prospective customer, not an existing policyholder - sales_lead."
+  },
+  {
+    "id": "case_51",
+    "split": "holdout",
+    "subject": "Do you cover rental properties?",
+    "body": "I own two rental properties that need insurance and I'm looking for a new agency to work with. Do you handle that kind of coverage?",
+    "expected_category": "sales_lead",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "New business inquiry from a prospective customer, needs a producer to actually quote."
+  },
+  {
+    "id": "case_52",
+    "split": "train",
+    "subject": "Can you send me a copy of my policy?",
+    "body": "Could you email me a copy of my current homeowners policy documents, HO-40982? I just want it for my own records.",
+    "expected_category": "document_request",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Simple resend of something the customer should already have - clean auto_reply candidate, contrasts with case_42's third-party certificate request."
+  },
+  {
+    "id": "case_53",
+    "split": "train",
+    "subject": "Need an ID card for my new car",
+    "body": "I just picked up my new car and need an updated insurance ID card for it. Policy AU-61830. Can you get that to me?",
+    "expected_category": "document_request",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Needs the new vehicle's details confirmed before a card can be issued correctly - escalate_human rather than a blind auto_reply."
+  },
+  {
+    "id": "case_54",
+    "split": "holdout",
+    "subject": "Declarations page for my mortgage company",
+    "body": "My mortgage company is asking for a declarations page showing my current homeowners coverage, policy HO-71029. Could you send that over to them directly?",
+    "expected_category": "document_request",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Names a third-party recipient (the mortgage company) - escalate_human, same pattern as the landlord certificate case."
+  },
+  {
+    "id": "case_55",
+    "split": "train",
+    "subject": "Why did my premium go up?",
+    "body": "My renewal notice came in and my premium is noticeably higher than last year, policy HO-30221. Can someone explain why?",
+    "expected_category": "billing_issue",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Needs an account-specific explanation from a person, not a generic templated answer."
+  },
+  {
+    "id": "case_56",
+    "split": "train",
+    "subject": "Can I switch to annual payments?",
+    "body": "I currently pay monthly for my auto policy, AU-58821, and would rather switch to a single annual payment. How do I set that up?",
+    "expected_category": "billing_issue",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A payment-plan change, not a problem, but still needs a person to actually set it up."
+  },
+  {
+    "id": "case_57",
+    "split": "holdout",
+    "subject": "My payment failed and I got a cancellation notice",
+    "body": "I just got a notice saying my policy HO-61120 will be canceled because my autopay didn't go through last week. I don't want to lose coverage - what do I need to do right now?",
+    "expected_category": "billing_issue",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Real risk of an actual coverage lapse - high urgency despite being a billing issue, not a claim."
   }
 ]

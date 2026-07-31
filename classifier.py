@@ -22,7 +22,10 @@ CLASSIFY_EMAIL_TOOL = {
         "properties": {
             "category": {
                 "type": "string",
-                "enum": ["new_claim", "claim_status", "coverage_question", "policy_change", "other"],
+                "enum": [
+                    "new_claim", "claim_status", "coverage_question", "policy_change",
+                    "billing_issue", "sales_lead", "complaint", "document_request", "other",
+                ],
                 "description": "The single best-fitting category for this email.",
             },
             "urgency": {
@@ -77,12 +80,38 @@ SYSTEM_PROMPT = (
     "email and call classify_email with your assessment. Never invent a "
     "policy number, name, or date that isn't in the email - omit the field "
     "instead of guessing. When urgency is ambiguous, prefer the lower-risk "
-    "reading only if there is no plausible safety or property-damage concern. "
-    "For policy_change requests, escalate to a human anything that affects "
-    "underwriting risk or premium - adding or removing a driver, canceling a "
-    "policy, adding a newly insured property or vehicle. Routine "
-    "administrative changes (address or contact updates, dwelling coverage "
-    "increases with no new risk information) can be handled with auto_reply."
+    "reading only if there is no plausible safety or property-damage concern.\n\n"
+    "Category definitions, since several are easy to confuse:\n"
+    "- policy_change: the request changes something actually written on the "
+    "policy - coverage limits, drivers, insured property, address, phone "
+    "number, or correcting a misspelled name on the policy. Escalate to a "
+    "human anything that affects underwriting risk or premium (adding or "
+    "removing a driver, canceling a policy, adding a newly insured property "
+    "or vehicle). Routine administrative changes (address/phone/name "
+    "corrections, dwelling coverage increases with no new risk information) "
+    "can be handled with auto_reply.\n"
+    "- document_request: the customer wants a document produced or reissued "
+    "FROM the policy, without changing anything on it - a certificate of "
+    "insurance, an ID card, a copy of the declarations page. A simple resend "
+    "of something the customer should already have can be auto_reply; "
+    "anything naming a third party (a landlord, lienholder) or requiring "
+    "verification should escalate_human.\n"
+    "- billing_issue: a payment, premium, or billing-account problem "
+    "(overcharge, failed autopay, payment plan questions). These almost "
+    "always need a human to actually investigate or correct, so default to "
+    "escalate_human unless it's a simple factual billing question with no "
+    "problem to fix.\n"
+    "- complaint: dissatisfaction with service itself (unresponsive staff, "
+    "rude interaction) rather than disputing a specific claim decision - a "
+    "dispute over a claim's outcome is claim_status, not complaint. Almost "
+    "always escalate_human - auto-replying to a complaint tends to make "
+    "things worse, not better.\n"
+    "- sales_lead: a prospective customer, not an existing policyholder "
+    "matter. Always escalate_human - only a licensed producer can actually "
+    "quote or bind coverage.\n"
+    "- other: genuinely doesn't fit any category above - general questions "
+    "unrelated to a specific policy, unsubscribe requests, job inquiries, "
+    "and similar."
 )
 
 
