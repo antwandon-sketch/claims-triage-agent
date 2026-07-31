@@ -60,28 +60,75 @@ Neon DB and real Claude API, review the actual accuracy numbers and any
 misses together, and decide whether prompt v1 needs adjusting before
 calling this "measured and working."
 
-## 2026-07-30 - Phase 3: eval run against prompt v2
+## 2026-07-31 - Prompt v2: fixed real answer-key mistakes, action accuracy 75% -> 90%
 
-- Ran the eval harness for real against the live Neon DB and Claude API,
-  following up on the "decide whether prompt v1 needs adjusting" note above
-- Updated `SYSTEM_PROMPT` (now v2) with explicit policy_change escalation
-  rules: adding/removing a driver, canceling a policy, or adding a newly
-  insured property/vehicle should escalate_human; address/contact updates
-  and no-new-risk dwelling coverage increases can stay auto_reply
-- Also fixed 3 issues in `golden_dataset.json` found along the way:
-  case_07's expected_urgency was mislabeled high (a mid-claim settlement
-  dispute isn't the same as "just filed" - downgraded to medium), and
-  case_08/case_09 were missing policy numbers in the body text
-- Results vs the same 20-case set: category accuracy 100% (unchanged),
-  urgency accuracy 90% (unchanged, but the specific missed case changed),
-  action accuracy up from 75% to 90%
-- Side effect worth flagging: case_12 (adding a driver) now misses on
-  urgency (expected low, got medium) even though its action call is now
-  correct - the same prompt change that fixed the escalation call nudged
-  urgency up too. A reminder that prompt edits aren't surgical - a change
-  aimed at one field can shift unrelated outputs.
-- case_03 and case_09 still miss on action (expected escalate_human, got
-  request_more_info) even after adding policy numbers, which rules out
-  "missing data" as the cause - reading these as genuine judgment-call
-  differences rather than bugs, and accepting them as known edge cases for
-  now rather than chasing further prompt tweaks.
+- Added policy_change escalation rule to SYSTEM_PROMPT: anything affecting
+  underwriting risk or premium (adding/removing a driver, cancellations,
+  newly insured property) escalates to a human; routine administrative
+  changes can auto_reply
+- Fixed 3 golden-dataset mistakes found by the v1 run: case_07's expected
+  urgency was 'high' but conflicted with the system prompt's own
+  definition of high urgency (safety/property risk) - changed to 'medium';
+  case_08 and case_09 were missing policy numbers, likely why the model
+  asked for more info instead of answering directly
+- Result: category 100% (unchanged), urgency 90% (unchanged, different
+  case), action 75% -> 90%
+- Known accepted edge cases, not chased further: case_03 and case_09 still
+  prefer request_more_info over escalate_human even with a policy number
+  present - defensible model behavior, not a data problem
+- Side effect worth remembering: the same prompt edit that fixed case_12's
+  action introduced a new urgency miss on the same case (low -> medium) -
+  a reminder that prompt changes can shift outputs you weren't targeting,
+  which is exactly why the eval always re-runs the whole set, not just the
+  case you were fixing
+
+## 2026-07-31 - Grew golden dataset to 45 cases, added train/holdout split
+
+- Added 25 new hand-labeled cases (case_21 through case_45), 5 per
+  category, covering angles not in the original 20: injury claims, claims
+  with no active leak, claim reopens, liability questions, home-business
+  coverage, removing (not just adding) a driver, adding a non-auto asset
+  (boat), billing errors, and more
+- Reason: the original 20 have now been looked at and tuned against twice
+  (v1 and v2) - continuing to measure "accuracy" against the same cases
+  the prompt was tuned on risks overfitting (the score goes up because the
+  prompt is increasingly tailored to those specific emails, not because it
+  actually generalizes better)
+- Tagged every case with `split: train` (the original 20) or
+  `split: holdout` (the new 25). Rule going forward: only ever look at the
+  holdout set's aggregate score, never its individual misses, when
+  deciding how to edit the prompt - the moment a holdout case's specific
+  wording drives a prompt change, it has effectively become a train case
+- `eval/run_eval.py` now takes `--split {all,train,holdout}` and, when run
+  with `all` (the default), prints three reports: TRAIN, HOLDOUT, and ALL
+- Added `filter_by_split()` as a pure, unit-tested function (3 new tests)
+- Dry-run tested the full split-aware report with fake responses,
+  including a deliberately-injected holdout-only miss, to confirm the
+  three-way breakdown actually reports correctly before spending a real
+  API call
+- 18 tests passing total
+
+**Next session:** run `python -m eval.run_eval` for real against all 45
+cases. Expect train accuracy to still look strong (already tuned for);
+the holdout numbers are the first genuinely unseen read on how well this
+generalizes, and are the ones worth taking seriously if pitching this to a
+real agency.
+
+## 2026-07-31 - First real eval run on all 45 cases (train/holdout)
+
+- Ran `python -m eval.run_eval` for real against the live Neon DB and
+  Claude API, no flags, all 45 cases (20 train, 25 holdout)
+- TRAIN (20 cases, already tuned against twice): category 100.0%,
+  urgency 90.0%, action 95.0%
+- HOLDOUT (25 cases, never tuned against): category 76.0%,
+  urgency 76.0%, action 88.0%
+- ALL (45 cases combined): category 86.7%, urgency 82.2%, action 91.1%
+- The train/holdout gap (100% -> 76% category, 90% -> 76% urgency) is
+  exactly the overfitting signal the split was built to surface - v1/v2
+  tuning clearly fit some train-set wording rather than generalizing
+- Holdout misses cluster in two places: `other` getting confused with
+  `policy_change` (case_41, case_42, case_45) and high/medium urgency
+  calls (case_27, case_30, case_32)
+- Per the rule from last session: not chasing individual holdout misses
+  into prompt edits - only the aggregate holdout score should inform any
+  future prompt change, so holdout stays a meaningful unseen check

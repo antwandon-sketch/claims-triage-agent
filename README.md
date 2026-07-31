@@ -66,14 +66,22 @@ pytest
 
 ## Running the eval harness
 
+The golden dataset is 45 cases, split into 20 `train` (the ones the prompt
+has been tuned against) and 25 `holdout` (the ones only ever checked for
+score, never used to guide a prompt edit - this is what keeps a rising
+accuracy number honest rather than just increasingly fit to a specific set
+of test emails).
+
 ```bash
-python -m eval.run_eval
+python -m eval.run_eval                  # runs all 45, reports train/holdout/all
+python -m eval.run_eval --split train    # just the 20 you tune against
+python -m eval.run_eval --split holdout  # just the 25 you don't
 ```
 
-This runs all 20 golden-dataset cases through the real classifier (real API
-calls, small real cost), prints an accuracy report and confusion matrix,
-saves the summary to `eval_runs` in Postgres, and writes a detailed
-per-case breakdown to `eval_results/`.
+This makes real API calls (a few cents total for the full set), prints an
+accuracy report and confusion matrix for each view, saves the run's summary
+to `eval_runs` in Postgres, and writes a detailed per-case breakdown to
+`eval_results/`.
 
 ## Manually testing the endpoint
 

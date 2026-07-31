@@ -5,12 +5,13 @@ no golden_dataset.json even needed. That's deliberate: the scoring math
 should be trustworthy on its own, independent of whether the classifier
 itself is doing well or badly that day.
 """
-from eval.run_eval import score_case, aggregate_scores
+from eval.run_eval import score_case, aggregate_scores, filter_by_split
 
 
-def _case(id="c1", category="new_claim", urgency="high", action="escalate_human"):
+def _case(id="c1", category="new_claim", urgency="high", action="escalate_human", split="train"):
     return {
         "id": id,
+        "split": split,
         "expected_category": category,
         "expected_urgency": urgency,
         "expected_suggested_action": action,
@@ -26,6 +27,7 @@ def test_score_case_all_correct():
     assert result["category_correct"] is True
     assert result["urgency_correct"] is True
     assert result["action_correct"] is True
+    assert result["split"] == "train"
 
 
 def test_score_case_wrong_category():
@@ -87,3 +89,20 @@ def test_aggregate_scores_empty_list_raises():
         assert False, "expected a ValueError for an empty case list"
     except ValueError:
         pass
+
+
+def test_filter_by_split_all_returns_everything():
+    cases = [_case(id="c1", split="train"), _case(id="c2", split="holdout")]
+    assert filter_by_split(cases, "all") == cases
+
+
+def test_filter_by_split_train_only():
+    cases = [_case(id="c1", split="train"), _case(id="c2", split="holdout")]
+    result = filter_by_split(cases, "train")
+    assert [c["id"] for c in result] == ["c1"]
+
+
+def test_filter_by_split_holdout_only():
+    cases = [_case(id="c1", split="train"), _case(id="c2", split="holdout")]
+    result = filter_by_split(cases, "holdout")
+    assert [c["id"] for c in result] == ["c2"]

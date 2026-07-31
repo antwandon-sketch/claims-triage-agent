@@ -4,24 +4,39 @@ whether accuracy actually went up or down, instead of just eyeballing a few
 test emails.
 
 Usage:
-    python -m eval.run_eval
+    python -m eval.run_eval                  # runs everything, reports all 3 views
+    python -m eval.run_eval --split train    # only the cases you tune against
+    python -m eval.run_eval --split holdout  # only the cases you don't tune against
+
+Why a split at all: once you've edited the prompt to fix something a case
+was getting wrong, that case can no longer tell you whether the prompt
+actually improved or whether it just got tailored to that one example -
+that's overfitting, same idea as memorizing a practice test instead of
+learning the material. The "train" cases are the ones you're allowed to
+look at and adjust the prompt against. The "holdout" cases are the ones you
+only ever check the *score* of - if you start reading holdout misses and
+editing the prompt to fix them, they've effectively become train cases and
+stop being a fair check.
 
 What it does:
     1. Loads eval/golden_dataset.json (the hand-labeled answer key)
     2. Sends each case's subject+body through the real classify_email()
        function - this makes real Claude API calls and costs a small
-       amount of real money (20 cases, short prompts - a few cents total)
+       amount of real money (a few cents for the full set)
     3. Compares each prediction to the expected label
     4. Prints a readable accuracy report + confusion matrix to the terminal
+       - when running the full set, also breaks the report out by
+         train vs. holdout, so you can see if holdout performance is
+         meaningfully lower (a sign of overfitting to the train cases)
     5. Saves the run's summary scores to the eval_runs table in Postgres,
        so you can track accuracy across prompt versions over time
     6. Writes a detailed per-case breakdown to eval_results/<timestamp>.json
-       so you can actually read through every case, not just the summary
 
-The scoring functions (score_case, aggregate_scores) are pure - no API
-calls, no database - so they're covered by fast unit tests in
+The scoring functions (score_case, aggregate_scores, filter_by_split) are
+pure - no API calls, no database - so they're covered by fast unit tests in
 tests/test_eval_scoring.py that run without any real credentials.
 """
+import argparse
 import json
 import os
 import sys
@@ -43,6 +58,13 @@ def load_golden_dataset(path=GOLDEN_DATASET_PATH):
         return json.load(f)
 
 
+def filter_by_split(cases, split):
+    """split: 'all', 'train', or 'holdout'. Pure function - easy to unit test."""
+    if split == "all":
+        return cases
+    return [c for c in cases if c.get("split") == split]
+
+
 def score_case(case, predicted_decision):
     """
     Compares one case's expected labels against what the classifier actually
@@ -50,6 +72,7 @@ def score_case(case, predicted_decision):
     """
     return {
         "id": case["id"],
+        "split": case.get("split"),
         "expected_category": case["expected_category"],
         "predicted_category": predicted_decision.get("category"),
         "category_correct": predicted_decision.get("category") == case["expected_category"],
@@ -90,9 +113,9 @@ def aggregate_scores(case_scores):
     }
 
 
-def print_report(summary, case_scores):
+def print_report(summary, case_scores, label="ALL"):
     print(f"\n{'=' * 60}")
-    print(f"EVAL RUN - {summary['total_cases']} cases")
+    print(f"EVAL RUN - {label} - {summary['total_cases']} cases")
     print(f"{'=' * 60}")
     print(f"Category accuracy:  {summary['category_accuracy'] * 100:.1f}%")
     print(f"Urgency accuracy:   {summary['urgency_accuracy'] * 100:.1f}%")
@@ -113,7 +136,7 @@ def print_report(summary, case_scores):
         print(f"Cases with at least one wrong field ({len(misses)}):")
         print(f"{'-' * 60}")
         for c in misses:
-            print(f"  {c['id']}:")
+            print(f"  {c['id']} [{c['split']}]:")
             if not c["category_correct"]:
                 print(f"    category: expected {c['expected_category']!r}, got {c['predicted_category']!r}")
             if not c["urgency_correct"]:
@@ -125,13 +148,26 @@ def print_report(summary, case_scores):
     print()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run the claims-triage eval harness.")
+    parser.add_argument(
+        "--split", choices=["all", "train", "holdout"], default="all",
+        help="Which cases to run: 'all' (default, also prints a train/holdout breakdown), "
+             "'train' (cases you tune the prompt against), or 'holdout' (cases you only "
+             "ever check the score of, never edit the prompt to fix individually).",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     golden_set = load_golden_dataset()
+    cases_to_run = filter_by_split(golden_set, args.split)
     case_scores = []
 
-    print(f"Running {len(golden_set)} cases against {config.MODEL_NAME} (prompt {config.PROMPT_VERSION})...")
-    for i, case in enumerate(golden_set, start=1):
-        print(f"  [{i}/{len(golden_set)}] {case['id']}...", end=" ", flush=True)
+    print(f"Running {len(cases_to_run)} cases ({args.split}) against {config.MODEL_NAME} (prompt {config.PROMPT_VERSION})...")
+    for i, case in enumerate(cases_to_run, start=1):
+        print(f"  [{i}/{len(cases_to_run)}] {case['id']} [{case.get('split')}]...", end=" ", flush=True)
         result = classify_email(case["subject"], case["body"])
         score = score_case(case, result["decision"])
         score["latency_ms"] = result["latency_ms"]
@@ -140,7 +176,17 @@ def main():
         print("OK" if ok else "MISS")
 
     summary = aggregate_scores(case_scores)
-    print_report(summary, case_scores)
+
+    if args.split == "all":
+        train_scores = [s for s in case_scores if s["split"] == "train"]
+        holdout_scores = [s for s in case_scores if s["split"] == "holdout"]
+        if train_scores:
+            print_report(aggregate_scores(train_scores), train_scores, label="TRAIN")
+        if holdout_scores:
+            print_report(aggregate_scores(holdout_scores), holdout_scores, label="HOLDOUT")
+        print_report(summary, case_scores, label="ALL")
+    else:
+        print_report(summary, case_scores, label=args.split.upper())
 
     run_id = db.save_eval_run(
         prompt_version=config.PROMPT_VERSION,
@@ -150,6 +196,7 @@ def main():
         urgency_accuracy=summary["urgency_accuracy"],
         action_accuracy=summary["action_accuracy"],
         confusion_matrix=summary["confusion_matrix"],
+        notes=f"split={args.split}",
     )
     print(f"Saved as eval_runs.id = {run_id}")
 
@@ -157,7 +204,7 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = os.path.join(RESULTS_DIR, f"run_{timestamp}.json")
     with open(out_path, "w") as f:
-        json.dump({"summary": summary, "cases": case_scores}, f, indent=2)
+        json.dump({"split": args.split, "summary": summary, "cases": case_scores}, f, indent=2)
     print(f"Detailed per-case results written to {out_path}")
 
 

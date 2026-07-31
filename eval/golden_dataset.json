@@ -1,6 +1,7 @@
 [
   {
     "id": "case_01",
+    "split": "train",
     "subject": "House fire last night - need help",
     "body": "There was an electrical fire in our garage last night, fire department put it out but there's smoke damage throughout the house and the garage is partially burned. Policy number HO-33210. We need somewhere to stay tonight, what do we do?",
     "expected_category": "new_claim",
@@ -10,6 +11,7 @@
   },
   {
     "id": "case_02",
+    "split": "train",
     "subject": "Basement flooding right now",
     "body": "Our sump pump failed during last night's storm and the basement has about 4 inches of standing water. It's still coming in. Policy PA-77410. What should we do immediately and how do we start a claim?",
     "expected_category": "new_claim",
@@ -19,15 +21,17 @@
   },
   {
     "id": "case_03",
+    "split": "train",
     "subject": "Fender bender yesterday afternoon",
     "body": "I was in a minor car accident yesterday, someone rear-ended me at a stop light. No one was hurt and both cars could still drive. I have the other driver's insurance info. Policy AU-90142. How do I file a claim?",
     "expected_category": "new_claim",
     "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
-    "notes": "Genuine new claim, but not an active emergency (happened yesterday, no injuries) - tests that new_claim doesn't automatically mean high urgency."
+    "notes": "Genuine new claim, but not an active emergency - tests that new_claim doesn't automatically mean high urgency. Known edge case: model has twice preferred request_more_info here instead - accepted for now rather than chased further."
   },
   {
     "id": "case_04",
+    "split": "train",
     "subject": "Break-in overnight - what do I do",
     "body": "We came home this morning and someone had broken a back window and gone through our house. Some jewelry and electronics are missing. Policy HO-44582. We already called the police. What's the next step for our claim?",
     "expected_category": "new_claim",
@@ -37,6 +41,7 @@
   },
   {
     "id": "case_05",
+    "split": "train",
     "subject": "Any update on my claim from two weeks ago?",
     "body": "I filed a claim on June 30th for storm damage to my roof (claim number CL-8842) and haven't heard anything since the initial confirmation email. Is there someone I can talk to about where things stand?",
     "expected_category": "claim_status",
@@ -46,6 +51,7 @@
   },
   {
     "id": "case_06",
+    "split": "train",
     "subject": "Checking on claim status",
     "body": "Just wanted to check in on the status of claim CL-9021 that I filed last week for a cracked windshield. No rush, just curious where it's at.",
     "expected_category": "claim_status",
@@ -55,42 +61,47 @@
   },
   {
     "id": "case_07",
+    "split": "train",
     "subject": "I disagree with the settlement amount",
     "body": "The adjuster just sent me a settlement offer for my kitchen fire claim (CL-7745) that's way lower than what the contractor quoted for repairs. I don't think this is fair and I need someone to actually talk to about this.",
     "expected_category": "claim_status",
     "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
-    "notes": "Not a new claim, but a serious dispute that needs a person - urgency can be high mid-claim, not just at filing."
+    "notes": "v2 fix: was labeled 'high' in v1, but that conflicted with the system prompt's own definition of high urgency (safety/property risk) - a billing dispute is medium."
   },
   {
     "id": "case_08",
+    "split": "train",
     "subject": "Does my policy cover a rental car?",
     "body": "If my car is in the shop after an accident, does my policy cover a rental car while it's being repaired? Policy AU-24417. Just want to know before I need it.",
     "expected_category": "coverage_question",
     "expected_urgency": "low",
     "expected_suggested_action": "auto_reply",
-    "notes": "Common, generic question with a standard policy-language answer - reasonable to auto-reply."
+    "notes": "v2 fix: added a policy number - it was missing in v1, likely why the model asked for more info instead of answering directly."
   },
   {
     "id": "case_09",
+    "split": "train",
     "subject": "Small ceiling stain - covered?",
-    "body": "I noticed a small brownish stain on my bedroom ceiling. It's not wet or growing that I can tell. Policy HO-61830. Not sure if it's worth mentioning but wanted to ask if something like that would even be covered before I decide whether to do anything.",
+    "body": "I noticed a small brownish stain on my bedroom ceiling. Policy HO-61830. It's not wet or growing that I can tell. Not sure if it's worth mentioning but wanted to ask if something like that would even be covered before I decide whether to do anything.",
     "expected_category": "coverage_question",
     "expected_urgency": "low",
     "expected_suggested_action": "escalate_human",
-    "notes": "Genuinely ambiguous - answering correctly needs this customer's specific policy language, not a guess."
+    "notes": "v2 fix: added a policy number. Known edge case: model has still preferred request_more_info here even with an ID present - genuinely ambiguous, accepted rather than chased further."
   },
   {
     "id": "case_10",
+    "split": "train",
     "subject": "Is jewelry covered under homeowners?",
     "body": "My ring went missing sometime this week, not positive if it was stolen or I just lost it somewhere. Before I file anything, is jewelry even covered under my homeowners policy, and is there a limit?",
     "expected_category": "coverage_question",
     "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
-    "notes": "Higher stakes than a ceiling stain (valuable item, possible theft) but no active emergency - tests medium, not low or high."
+    "notes": "Higher stakes than a ceiling stain (valuable item, possible theft) but no active emergency - tests medium, not low or high. Known borderline case - defensible either way."
   },
   {
     "id": "case_11",
+    "split": "train",
     "subject": "Need to update my address",
     "body": "We moved a few months ago and I don't think I ever updated the address on file for our auto policy AU-55310. Can you get that changed to 214 Birchwood Lane, Georgetown, TX?",
     "expected_category": "policy_change",
@@ -100,15 +111,17 @@
   },
   {
     "id": "case_12",
+    "split": "train",
     "subject": "Adding my son to my auto policy",
     "body": "My son just got his license and I need to add him to my auto policy, AU-61029. He'll mostly be driving my older car. What do I need to send over?",
     "expected_category": "policy_change",
     "expected_urgency": "low",
     "expected_suggested_action": "escalate_human",
-    "notes": "Adding a driver usually changes the premium and needs underwriting input - tests that policy_change doesn't automatically mean auto_reply."
+    "notes": "Adding a driver changes underwriting risk - tests the v2 escalation rule directly (this is the case that rule was written for)."
   },
   {
     "id": "case_13",
+    "split": "train",
     "subject": "I want to cancel my policy",
     "body": "I found a cheaper rate somewhere else and want to cancel my homeowners policy, HO-20981, effective as soon as possible.",
     "expected_category": "policy_change",
@@ -118,15 +131,17 @@
   },
   {
     "id": "case_14",
+    "split": "train",
     "subject": "Increase my coverage amount",
     "body": "We just finished a kitchen remodel and want to increase the dwelling coverage limit on our homeowners policy, HO-39215, to reflect the higher home value. What's the process?",
     "expected_category": "policy_change",
     "expected_urgency": "low",
     "expected_suggested_action": "auto_reply",
-    "notes": "Routine, common, low-stakes request - unlike the cancellation above."
+    "notes": "Routine, common, low-stakes request - unlike the cancellation above. Tests that the v2 escalation rule doesn't over-fire on every policy_change."
   },
   {
     "id": "case_15",
+    "split": "train",
     "subject": "Nobody has called me back",
     "body": "I've left three voicemails for my agent over the past week and haven't heard back at all. I'm getting pretty frustrated at this point and just want someone to actually respond.",
     "expected_category": "other",
@@ -136,6 +151,7 @@
   },
   {
     "id": "case_16",
+    "split": "train",
     "subject": "Are you open on Saturdays?",
     "body": "Quick question - is your office open on Saturdays, and if so what time?",
     "expected_category": "other",
@@ -145,6 +161,7 @@
   },
   {
     "id": "case_17",
+    "split": "train",
     "subject": "Application for office position",
     "body": "Hi, I saw you're hiring for a front desk position and wanted to send my resume over. Let me know if you need anything else from me!",
     "expected_category": "other",
@@ -154,6 +171,7 @@
   },
   {
     "id": "case_18",
+    "split": "train",
     "subject": "Interested in a quote",
     "body": "Hi, I'm shopping around for homeowners insurance and was referred to your agency by a neighbor. Could someone reach out about getting a quote?",
     "expected_category": "other",
@@ -163,6 +181,7 @@
   },
   {
     "id": "case_19",
+    "split": "train",
     "subject": "Tree fell on our roof during the storm",
     "body": "A large tree just came down on our roof during tonight's storm and there's a hole letting rain into the attic. We're worried about it getting worse overnight. Policy HO-71104.",
     "expected_category": "new_claim",
@@ -172,11 +191,262 @@
   },
   {
     "id": "case_20",
+    "split": "train",
     "subject": "Does my policy cover flooding?",
     "body": "There's flooding happening a few streets over from us and I'm getting nervous. Does my homeowners policy cover flood damage, or do I need something separate? Water hasn't reached our house yet but I want to know before it does.",
     "expected_category": "coverage_question",
     "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
     "notes": "No damage yet, but flood coverage is a well-known gap in standard homeowners policies - needs an accurate answer, not a guess, and is time-pressured given nearby flooding."
+  },
+  {
+    "id": "case_21",
+    "split": "holdout",
+    "subject": "Car accident, someone's hurt",
+    "body": "I was just in an accident on Rivery Blvd and the other driver says their neck hurts, ambulance is on the way. My policy is AU-30284. What do I need to do?",
+    "expected_category": "new_claim",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Injury involved - clear high urgency new claim."
+  },
+  {
+    "id": "case_22",
+    "split": "holdout",
+    "subject": "Just noticed hail damage on the roof",
+    "body": "We had a hailstorm about a week ago and I finally got up on a ladder to check the roof - there's clear dents and a couple missing shingles. Nothing is leaking yet. Policy HO-50291.",
+    "expected_category": "new_claim",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Real damage, but discovered after the fact with no active leak - tests medium rather than high urgency on a new claim."
+  },
+  {
+    "id": "case_23",
+    "split": "holdout",
+    "subject": "Small kitchen fire, already out",
+    "body": "Had a grease fire on the stove tonight, got it out with a fire extinguisher within a minute. Some scorching on the cabinet above the stove. Everyone's fine. Policy HO-68820. Do we need to file a claim for this?",
+    "expected_category": "new_claim",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Already contained, no ongoing danger - medium, not high, despite being a fire."
+  },
+  {
+    "id": "case_24",
+    "split": "holdout",
+    "subject": "Bike stolen from our garage",
+    "body": "Noticed my son's bike is missing from the garage, probably happened sometime over the weekend. Nothing else looks disturbed. Policy HO-71932. Worth filing a claim for this?",
+    "expected_category": "new_claim",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Low-value, low-urgency theft, discovered after the fact - tests that new_claim urgency can be low, not just medium/high."
+  },
+  {
+    "id": "case_25",
+    "split": "holdout",
+    "subject": "Lightning strike fried our electronics",
+    "body": "Lightning hit near our house during last night's storm and knocked out our TV, router, and a couple of lamps. No fire, no other damage that we can tell. Policy HO-14477.",
+    "expected_category": "new_claim",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Real, dated loss with no ongoing risk - medium urgency."
+  },
+  {
+    "id": "case_26",
+    "split": "holdout",
+    "subject": "Where's my claim payment?",
+    "body": "My claim (CL-11209) was approved two weeks ago and I still haven't seen the payment hit my account. Can someone check on this?",
+    "expected_category": "claim_status",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Financial delay on an approved claim - real but not an emergency."
+  },
+  {
+    "id": "case_27",
+    "split": "holdout",
+    "subject": "Need to reopen my claim",
+    "body": "The water damage from claim CL-10044 that I thought was fixed is back - the same wall is soft again. Can we reopen this instead of filing something new?",
+    "expected_category": "claim_status",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Recurring active damage tied to an existing claim - high urgency despite being 'claim_status' rather than a brand new claim."
+  },
+  {
+    "id": "case_28",
+    "split": "holdout",
+    "subject": "Has an adjuster been assigned yet?",
+    "body": "Just wondering if an adjuster has been assigned to my claim CL-11390 yet. No urgency, just checking in.",
+    "expected_category": "claim_status",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Simple status lookup, explicitly low-pressure."
+  },
+  {
+    "id": "case_29",
+    "split": "holdout",
+    "subject": "Sending over photos for my claim",
+    "body": "Attaching a few more photos of the fence damage for claim CL-11501 like the adjuster asked. Let me know if you need anything else.",
+    "expected_category": "claim_status",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Customer supplying requested documents, not asking a question - a simple acknowledgment is enough."
+  },
+  {
+    "id": "case_30",
+    "split": "holdout",
+    "subject": "My claim got denied and I don't understand why",
+    "body": "I just got a letter saying my claim CL-9877 was denied. I don't understand the reasoning and I want to appeal this - can someone call me back today?",
+    "expected_category": "claim_status",
+    "expected_urgency": "high",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A denial appeal is high-stakes and needs a real person, and the customer explicitly asked for urgency."
+  },
+  {
+    "id": "case_31",
+    "split": "holdout",
+    "subject": "Windshield chip - covered?",
+    "body": "I have a small chip in my windshield, policy AU-40118. Does my policy cover a repair with no deductible, like some places advertise?",
+    "expected_category": "coverage_question",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Common, standard question with a policy number provided - clean auto_reply candidate."
+  },
+  {
+    "id": "case_32",
+    "split": "holdout",
+    "subject": "Dog bit our neighbor's kid",
+    "body": "Our dog bit a neighbor's child in our yard yesterday, nobody's filed anything yet but they mentioned a doctor visit. Is something like this covered under our homeowners policy, HO-90213?",
+    "expected_category": "coverage_question",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Liability exposure question before any formal claim - genuinely needs a person, not a templated answer."
+  },
+  {
+    "id": "case_33",
+    "split": "holdout",
+    "subject": "Running a small business from home",
+    "body": "I started selling candles online out of my garage a few months ago. Does my homeowners policy, HO-33987, cover any of that, or do I need something separate?",
+    "expected_category": "coverage_question",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Home-business coverage is a common real gap in standard policies and genuinely needs underwriting review, not a guess."
+  },
+  {
+    "id": "case_34",
+    "split": "holdout",
+    "subject": "Mold in the bathroom - covered?",
+    "body": "We found some mold behind the bathroom tile during a renovation, not sure what caused it. Would something like that be covered under our policy, HO-51204?",
+    "expected_category": "coverage_question",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Mold coverage is genuinely complicated and policy-specific - needs a real answer, not a guess."
+  },
+  {
+    "id": "case_35",
+    "split": "holdout",
+    "subject": "Does my policy include roadside assistance?",
+    "body": "Quick one - does my auto policy AU-77120 come with roadside assistance or towing coverage?",
+    "expected_category": "coverage_question",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Simple factual lookup, policy number provided."
+  },
+  {
+    "id": "case_36",
+    "split": "holdout",
+    "subject": "Remove my ex from the auto policy",
+    "body": "My ex-husband is still listed as a driver on our auto policy AU-20938 and we're divorced now, can you take him off?",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Removing a driver still changes the risk profile of the policy - tests whether the v2 rule generalizes to 'removing' as well as 'adding' a driver."
+  },
+  {
+    "id": "case_37",
+    "split": "holdout",
+    "subject": "Just bought a boat, need to add it",
+    "body": "We bought a small fishing boat over the weekend and want to get it added to our policy, HO-60174, or set up separately if that's how it works.",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Adding a newly insured asset - tests the v2 rule's phrase 'adding a newly insured property or vehicle' on a boat rather than a car."
+  },
+  {
+    "id": "case_38",
+    "split": "holdout",
+    "subject": "Update my phone number",
+    "body": "Can you update the phone number on file for policy HO-38820? My old number got disconnected.",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Routine contact-info update, same category as the address-change case in training."
+  },
+  {
+    "id": "case_39",
+    "split": "holdout",
+    "subject": "Adding an umbrella policy",
+    "body": "I've been thinking about getting an umbrella liability policy on top of our existing homeowners, HO-49213. What would that involve?",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A new coverage type entirely - needs underwriting/pricing, not an automated answer."
+  },
+  {
+    "id": "case_40",
+    "split": "holdout",
+    "subject": "Lower my coverage to save money",
+    "body": "Money's tight right now and I want to reduce the coverage limits on my homeowners policy, HO-70310, to bring the premium down. What are my options?",
+    "expected_category": "policy_change",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Reducing coverage changes the customer's actual risk exposure - the kind of decision that deserves a human conversation, not an automatic yes."
+  },
+  {
+    "id": "case_41",
+    "split": "holdout",
+    "subject": "My name is misspelled on my policy",
+    "body": "Just noticed my last name is spelled wrong on my policy documents, HO-58112 - it says 'Petersen' but it should be 'Peterson'. Can this get fixed?",
+    "expected_category": "other",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "Administrative correction to official records - needs a person to actually make the change, not something a bot should just confirm."
+  },
+  {
+    "id": "case_42",
+    "split": "holdout",
+    "subject": "Need a certificate of insurance for my landlord",
+    "body": "My landlord is asking for a certificate of insurance showing my renters coverage, policy RN-30821. Can someone send that over?",
+    "expected_category": "other",
+    "expected_urgency": "low",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A real, common request, but needs an actual document generated/issued by a person, not just a reply."
+  },
+  {
+    "id": "case_43",
+    "split": "holdout",
+    "subject": "Please unsubscribe me from marketing emails",
+    "body": "Can you take me off your marketing email list? I just want policy-related communications, not promotions.",
+    "expected_category": "other",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Simple, self-contained request with a clear, uncomplicated action."
+  },
+  {
+    "id": "case_44",
+    "split": "holdout",
+    "subject": "What types of insurance do you offer?",
+    "body": "Hi, just curious what kinds of insurance your agency handles - home, auto, anything else?",
+    "expected_category": "other",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "Simple factual question, no customer-specific data needed."
+  },
+  {
+    "id": "case_45",
+    "split": "holdout",
+    "subject": "I was charged twice this month",
+    "body": "My statement shows two separate withdrawals for my premium this month instead of one. Policy HO-20077. Can someone look into this and get it fixed?",
+    "expected_category": "other",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "A billing error affecting the customer's money directly - needs a person to actually investigate and correct it."
   }
 ]
