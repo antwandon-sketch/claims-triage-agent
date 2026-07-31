@@ -198,38 +198,98 @@ this split cleanly into three distinct findings, not one:
 compare urgency accuracy specifically (was 82.5% under v3) - this is the
 one metric this round is squarely aimed at improving.
 
-## 2026-07-31 - First real eval run on all 57 cases (prompt v4) - urgency "improvement" was mostly the relabel, not the fix
+## 2026-07-31 - Real v4 run: urgency "improvement" was mostly illusory
 
-- Ran `python -m eval.run_eval` for real, no flags, all 57 cases (26 train,
-  31 holdout)
-- TRAIN (26): category 96.2%, urgency 80.8%, action 96.2%
-- HOLDOUT (31): category 93.5%, urgency 93.5%, action 90.3%
-- ALL (57): category 94.7%, urgency 87.7%, action 93.0%
-- Headline urgency number looks like a win (82.5% -> 87.7%), but pulling
-  actual expected-vs-predicted pairs from both runs' JSON shows that's
-  misleading:
-  - case_10/case_30/case_34 flipped MISS -> OK, but the model's actual
-    predictions for these 3 didn't change between v3 and v4 at all -
-    only the answer-key label changed (last round's relabel), so this is
-    the label catching up to the model, not the model improving
-  - On the 54 cases whose labels didn't change, urgency accuracy is
-    **exactly 47/54 (87.0%) in both v3 and v4** - genuinely no movement
-  - Within that unchanged set, the targeted bug fix did work:
-    case_12/case_36/case_37 (the policy_change bleed cases) correctly
-    went from medium -> low
-  - But it introduced a same-shape regression in the other direction:
-    case_03/case_05/case_46/case_47 flipped from correct (medium) to
-    wrong (medium expected, low predicted) - 4 new misses with the exact
-    "should be medium, got low" pattern the fix was meant to eliminate
-  - Net: 3 fixed, 4 newly broken, roughly a wash - the "urgency and
-    suggested_action are independent" clarification seems to have made
-    the model generally more reluctant to call things medium urgency,
-    not just fixed the policy_change-specific bleed
-- Conclusion: urgency is not actually fixed. The real, like-for-like
-  score is flat at 87.0%. Don't cite "82.5% -> 87.7%" as a win without
-  this context.
+Ran all 57 cases for real. Headline numbers: category 94.7%, urgency 87.7%
+(up from 82.5%), action 93.0%. Dug into whether the urgency gain was real
+by comparing actual model predictions (not just labels) between v3 and v4:
 
-**Next session:** don't chase individual medium/low urgency misses
-further without a hypothesis for why the model under-escalates broadly,
-not just for policy_change - the case_03/05/46/47 regression suggests
-whatever changed is affecting more than the policy_change rule.
+- All +5.2 points came from 3 relabeled cases (case_10/30/34) whose
+  model predictions were identical in both runs - only the answer key
+  changed. Legitimate correction, but not model improvement.
+- On the 54 unchanged-label cases, urgency accuracy was exactly 47/54
+  (87.0%) in both v3 and v4 - genuinely flat.
+- The targeted fix worked on case_12/36/37 (medium -> low, correct) but
+  introduced a same-shape regression on case_03/05/46/47 (correct medium
+  flipped to wrong low). Net: 3 fixed, 4 newly broken.
+- Conclusion: urgency is not fixed, it's flat at 87.0% like-for-like. The
+  "urgency and suggested_action are independent" clarification made the
+  model broadly more reluctant to call things medium, not just fixed the
+  policy_change-specific bleed. Needs a more surgical rewrite next time -
+  probably separating urgency and action guidance into language that
+  shares zero vocabulary.
+
+## 2026-07-31 - Added safety-critical stress testing (new capability, not just a test)
+
+Decided to stress-test the system against scenarios outside normal
+production traffic, prioritized by real-world consequence rather than
+building all of them at once. Safety-critical language first, since
+getting this wrong has actual real-world stakes, not just a lower eval
+score.
+
+- Added a genuinely new field to the classifier, not just a test: 
+  `safety_instruction` (optional string). If an email describes an active
+  physical emergency happening right now (gas leak, downed power line,
+  CO alarm, active fire, someone trapped/injured), the model now
+  populates this with a short, direct instruction for the customer -
+  evacuate, call 911, call the gas company's emergency line. This is
+  explicitly framed in the system prompt as mattering more than getting
+  category or urgency right.
+- Persisted the new field: added `safety_instruction` column to
+  `agent_decisions` in db.py.
+- Built `eval/stress_tests.json`: 10 cases, 5 genuine emergencies + 5
+  deliberate false-positive traps (a fire that's already out, dramatic
+  all-caps language about a routine address change, a non-working smoke
+  detector, a tree-on-roof property claim with nobody in danger, a
+  resolved car accident) - the traps matter as much as the positives,
+  since a system that flags everything "urgent-sounding" is as useless as
+  one that misses real danger.
+- Built `eval/run_stress_tests.py` as a separate harness from
+  `run_eval.py` on purpose - this measures a binary safety property, not
+  classification accuracy, and explicitly does NOT collapse the two
+  failure directions into one number: a false_negative (missed real
+  emergency) is called out as the dangerous direction, separate from a
+  false_positive (false alarm on something routine)
+- 8 new unit tests for the pure scoring logic (`test_stress_scoring.py`),
+  26 tests passing total
+- Dry-run tested with fake responses including a deliberately-injected
+  false negative AND false positive, confirming both get correctly
+  flagged and separated in the report before spending a real API call
+- PROMPT_VERSION bumped to v5 (new field + new system prompt priority
+  instruction)
+
+**Next session:** run `python -m eval.run_stress_tests` for real. Any
+false_negative here should be treated seriously, not averaged into an
+"accuracy is fine" narrative - this is the one test in this whole project
+where a wrong answer has actual real-world consequences, not just a lower
+score. Also still owe a more careful fix for the flat 87.0% urgency
+accuracy from the v4 finding above.
+
+## 2026-07-31 - First real stress test run (prompt v5): 10/10, zero false negatives
+
+- Ran `python -m eval.run_stress_tests` for real against the live Claude
+  API, all 10 cases
+- Result: 100.0% (10/10). **Zero false negatives and zero false
+  positives** - the two numbers that actually matter here, reported
+  separately rather than folded into one accuracy figure
+- No false negatives by name: none of safety_01 through safety_05 (the 5
+  genuine emergencies - gas leak, downed power line, active house fire,
+  electrical fire, someone trapped/injured) were missed. Every one
+  correctly got a populated `safety_instruction`
+- Checked the actual instruction text, not just presence/absence, since a
+  technically-present-but-empty or vague string would be a hollow pass:
+  each one is a specific, correct, situation-appropriate instruction
+  (e.g. safety_01: "leave the house immediately... call 911 or your gas
+  company's emergency line"; safety_05: "call 911 immediately... to free
+  and assist your husband") - not boilerplate
+- No false positives either: none of safety_06 through safety_10 (the
+  deliberate traps - fire already out, all-caps routine address change,
+  non-working smoke detector, tree-on-roof with nobody in danger,
+  resolved car accident) triggered a safety instruction
+- This is a clean first run with no fixes needed - worth being suspicious
+  of a clean first run in general, but the miss_type/false_negative
+  fields are explicit and this genuinely has none, and the instruction
+  text itself was manually checked case-by-case above, not just the
+  boolean
+- Still owe a real fix for the flat 87.0% urgency accuracy from the v4
+  finding - that one is real and unresolved, unlike this clean pass

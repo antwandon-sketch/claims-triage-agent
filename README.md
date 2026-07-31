@@ -83,6 +83,25 @@ accuracy report and confusion matrix for each view, saves the run's summary
 to `eval_runs` in Postgres, and writes a detailed per-case breakdown to
 `eval_results/`.
 
+## Running the safety-critical stress test
+
+Separate from the accuracy harness above - this tests a narrower, binary
+safety property: does the classifier correctly recognize an active
+physical emergency (gas leak, downed power line, CO alarm, active fire,
+someone trapped/injured) and populate `safety_instruction`, and does it
+correctly stay silent on routine or already-resolved situations (including
+deliberately dramatic-sounding but non-hazardous emails)?
+
+```bash
+python -m eval.run_stress_tests
+```
+
+A **false negative** (a real emergency with no safety instruction) is
+treated as the dangerous failure direction and called out separately from
+a **false positive** (a routine case that got a safety instruction
+anyway) - the two aren't equally bad, so the report never collapses them
+into one accuracy number.
+
 ## Manually testing the endpoint
 
 ```bash

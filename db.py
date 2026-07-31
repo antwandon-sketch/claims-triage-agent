@@ -54,12 +54,21 @@ def init_db():
                     suggested_action TEXT NOT NULL,
                     confidence REAL NOT NULL,
                     rationale TEXT,
+                    safety_instruction TEXT,
                     prompt_version TEXT NOT NULL,
                     model_name TEXT NOT NULL,
                     latency_ms INTEGER,
                     raw_model_response JSONB
                 );
                 """
+            )
+            # CREATE TABLE IF NOT EXISTS above only helps on a brand-new
+            # database - it's a no-op if agent_decisions already exists,
+            # which it does on the live database from Phase 1. This ALTER
+            # is what actually adds the new column to that existing table.
+            # Safe to re-run - IF NOT EXISTS makes it a no-op afterward.
+            cur.execute(
+                "ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS safety_instruction TEXT;"
             )
             cur.execute(
                 """
@@ -99,7 +108,9 @@ def save_raw_email(sender_email, subject, body, raw_payload):
 def save_decision(raw_email_id, decision, prompt_version, model_name, latency_ms, raw_model_response):
     """
     decision: dict with keys category, urgency, policy_number, customer_name,
-              date_of_loss, summary, suggested_action, confidence, rationale
+              date_of_loss, summary, suggested_action, confidence, rationale,
+              safety_instruction (optional - only present for active physical
+              danger cases)
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -108,9 +119,10 @@ def save_decision(raw_email_id, decision, prompt_version, model_name, latency_ms
                 INSERT INTO agent_decisions (
                     raw_email_id, category, urgency, policy_number, customer_name,
                     date_of_loss, summary, suggested_action, confidence, rationale,
-                    prompt_version, model_name, latency_ms, raw_model_response
+                    safety_instruction, prompt_version, model_name, latency_ms,
+                    raw_model_response
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id;
                 """,
                 (
@@ -124,6 +136,7 @@ def save_decision(raw_email_id, decision, prompt_version, model_name, latency_ms
                     decision["suggested_action"],
                     decision["confidence"],
                     decision.get("rationale"),
+                    decision.get("safety_instruction"),
                     prompt_version,
                     model_name,
                     latency_ms,

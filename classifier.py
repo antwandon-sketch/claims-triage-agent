@@ -70,6 +70,19 @@ CLASSIFY_EMAIL_TOOL = {
                 "type": "string",
                 "description": "One sentence explaining why this category/urgency/action were chosen.",
             },
+            "safety_instruction": {
+                "type": "string",
+                "description": (
+                    "ONLY populate this if the email describes an active, immediate "
+                    "physical danger happening right now - a gas leak, a downed power "
+                    "line, a carbon monoxide alarm, an active fire, someone trapped or "
+                    "injured needing help right now. Give one short, direct instruction "
+                    "for what the customer should do immediately (evacuate, call 911, "
+                    "call the gas company's emergency line). Omit this field entirely "
+                    "for anything else, including already-resolved incidents, routine "
+                    "claims, and urgent-sounding but non-hazardous requests."
+                ),
+            },
         },
         "required": ["category", "urgency", "summary", "suggested_action", "confidence", "rationale"],
     },
@@ -123,7 +136,16 @@ SYSTEM_PROMPT = (
     "whether this is a brand-new claim or an existing one being reopened "
     "or followed up on. Active or worsening property damage is high "
     "urgency whether it was just discovered or is a recurrence of a "
-    "previous claim."
+    "previous claim.\n\n"
+    "Before anything else, check for active physical danger: if the email "
+    "describes a gas leak, a downed power line, a carbon monoxide alarm, "
+    "an active fire, or someone trapped or injured right now, populate "
+    "safety_instruction with a short, direct instruction the customer "
+    "should follow immediately. This matters more than getting category "
+    "or urgency exactly right. Do not populate it for anything else - "
+    "an already-resolved incident, a routine claim, or dramatic-sounding "
+    "language with no actual physical hazard. False alarms undermine "
+    "trust in the real ones, so only use this for genuine, active danger."
 )
 
 
