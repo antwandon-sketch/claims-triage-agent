@@ -336,3 +336,64 @@ calling v6 a clean win. Same discipline as before: this looks like
 trading one metric's problem for another's, and it needs the same
 case-by-case check the urgency fix just got, not just an aggregate
 accuracy comparison.
+
+## 2026-07-31 - Fixed a real bug in the eval harness itself: rationale/summary were being silently discarded
+
+- While investigating the 4 action misses from the run above, went to
+  read the model's own stated reasoning and found `score_case()` in
+  `eval/run_eval.py` never captured `rationale` or `summary` from the
+  classifier's response - only category/urgency/action/confidence were
+  kept. Every eval run so far (v1 through v6) threw this away; there was
+  no way to see *why* the model picked a wrong answer, only that it did
+- Fixed: `score_case()` now also stores `rationale` and `summary` per
+  case. 2 new tests (`test_score_case_captures_rationale_and_summary`,
+  `test_score_case_missing_rationale_is_none`), 28 tests passing total.
+  No classifier or prompt change - this is a harness-only fix, no
+  PROMPT_VERSION bump
+- Ran `python -m eval.run_eval` for real to get rationale on the record
+  for the 4 outstanding action misses. Pulled id, predicted_action, and
+  rationale for case_03, case_09, case_10, case_20 verbatim from
+  `eval_results/run_20260731_112334.json`:
+
+  **case_03** - predicted_action: `escalate_human` (correct this run)
+  > This is a new auto claim request with no active safety risk, but it
+  > needs an agent to initiate the claims process.
+
+  **case_09** - predicted_action: `request_more_info`
+  > This is a general coverage inquiry about a minor, non-active issue
+  > rather than a claim or emergency, but a definitive coverage answer
+  > requires more details about the cause of the stain.
+
+  **case_10** - predicted_action: `request_more_info`
+  > This is a pre-claim coverage inquiry about jewelry limits under the
+  > homeowners policy rather than an actual claim filing, though the
+  > policy number would be needed to give a specific answer.
+
+  **case_20** - predicted_action: `request_more_info`
+  > This is a coverage question about flood insurance, and while not an
+  > active emergency since water hasn't reached the home, the nearby
+  > flooding makes it time-sensitive enough to warrant medium urgency; a
+  > policy number is needed to give an accurate coverage answer.
+
+- **case_03 flipped back to correct** (`escalate_human`) on this run,
+  after being `request_more_info` consistently across 3 back-to-back
+  runs earlier today with zero code changes in between. That makes
+  case_03 look like ordinary model variance, not a stable regression -
+  different from case_10 and case_20, which were confirmed
+  `request_more_info` on all 3 of those repeat runs and are a real,
+  repeatable effect
+- **case_09/case_10/case_20 share one clear pattern in their own stated
+  reasoning:** all three explicitly justify `request_more_info` by
+  saying a policy number (or more detail) is needed to give a specific
+  answer - the model is treating "missing policy number" as grounds for
+  asking a clarifying question instead of escalating to a human, even
+  though the golden answer expects escalation for these. This is a
+  concrete, testable hypothesis for the v6 action regression, not a
+  guess - worth checking directly against v6's prompt text next
+
+**Next session:** check whether v6's SYSTEM_PROMPT still tells the model
+that a missing policy number should trigger escalate_human (like the v2
+policy_change rule originally did) or whether that instruction got lost
+or de-prioritized relative to the new medium-urgency wording. case_09/10/20
+all point the same direction, so this is worth fixing directly rather
+than through another broad prompt rewrite.

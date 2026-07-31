@@ -69,6 +69,11 @@ def score_case(case, predicted_decision):
     """
     Compares one case's expected labels against what the classifier actually
     predicted. Pure function - no side effects - so it's easy to unit test.
+
+    Captures rationale and summary too, not just the graded fields - a
+    correct/incorrect verdict alone doesn't tell you *why* the model
+    decided what it did, and that's exactly the detail needed to diagnose
+    a miss instead of guessing at it after the fact.
     """
     return {
         "id": case["id"],
@@ -83,6 +88,8 @@ def score_case(case, predicted_decision):
         "predicted_action": predicted_decision.get("suggested_action"),
         "action_correct": predicted_decision.get("suggested_action") == case["expected_suggested_action"],
         "confidence": predicted_decision.get("confidence"),
+        "rationale": predicted_decision.get("rationale"),
+        "summary": predicted_decision.get("summary"),
     }
 
 
@@ -143,6 +150,8 @@ def print_report(summary, case_scores, label="ALL"):
                 print(f"    urgency:  expected {c['expected_urgency']!r}, got {c['predicted_urgency']!r}")
             if not c["action_correct"]:
                 print(f"    action:   expected {c['expected_action']!r}, got {c['predicted_action']!r}")
+            if c.get("rationale"):
+                print(f"    rationale: {c['rationale']}")
     else:
         print("\nAll cases matched on category, urgency, and action.")
     print()

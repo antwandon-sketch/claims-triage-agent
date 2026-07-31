@@ -30,6 +30,24 @@ def test_score_case_all_correct():
     assert result["split"] == "train"
 
 
+def test_score_case_captures_rationale_and_summary():
+    """The v6 investigation found rationale/summary were being discarded -
+    this is the regression test making sure they stay captured going
+    forward."""
+    decision = _decision()
+    decision["rationale"] = "Missing policy number, need it to assess confidently."
+    decision["summary"] = "Customer asking about jewelry coverage."
+    result = score_case(_case(), decision)
+    assert result["rationale"] == "Missing policy number, need it to assess confidently."
+    assert result["summary"] == "Customer asking about jewelry coverage."
+
+
+def test_score_case_missing_rationale_is_none():
+    result = score_case(_case(), {"category": "new_claim", "urgency": "high", "suggested_action": "escalate_human"})
+    assert result["rationale"] is None
+    assert result["summary"] is None
+
+
 def test_score_case_wrong_category():
     result = score_case(_case(category="new_claim"), _decision(category="coverage_question"))
     assert result["category_correct"] is False
