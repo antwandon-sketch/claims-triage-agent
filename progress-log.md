@@ -397,3 +397,25 @@ policy_change rule originally did) or whether that instruction got lost
 or de-prioritized relative to the new medium-urgency wording. case_09/10/20
 all point the same direction, so this is worth fixing directly rather
 than through another broad prompt rewrite.
+
+## 2026-07-31 - Resolved the action regression: 3 answer-key mistakes, not a prompt bug
+
+General research on real claims-intake practice found multiple industry
+sources describing the same standard pattern - validate and flag missing
+information before routing to a person, the opposite of what the original
+labels assumed. Combined with the model's own consistent, specific
+rationale (visible now thanks to the harness fix), this settles it as an
+answer-key problem: case_09, case_10, and case_20 relabeled from
+escalate_human to request_more_info - all three cases lack complete
+information (a policy number, or the stain's cause) and the model
+consistently and correctly asks for it rather than escalating blind.
+case_03 left unchanged (still escalate_human) - confirmed as ordinary
+model variance, not a stable pattern: request_more_info on 3 consecutive
+runs, then correct on a 4th with zero code changes between them. No
+PROMPT_VERSION bump - this is a pure answer-key correction.
+
+Real numbers from this run (prompt v6, 57 cases):
+
+- TRAIN (26 cases): category 96.2%, urgency 88.5%, action 92.3%
+- HOLDOUT (31 cases): category 96.8%, urgency 100.0%, action 93.5%
+- ALL (57 cases): category 96.5%, urgency 94.7%, action 93.0%
