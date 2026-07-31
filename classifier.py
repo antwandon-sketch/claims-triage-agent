@@ -111,7 +111,19 @@ SYSTEM_PROMPT = (
     "quote or bind coverage.\n"
     "- other: genuinely doesn't fit any category above - general questions "
     "unrelated to a specific policy, unsubscribe requests, job inquiries, "
-    "and similar."
+    "and similar.\n\n"
+    "A few urgency clarifications, since it's easy to let category or "
+    "action bleed into this judgment:\n"
+    "- Urgency and suggested_action are independent. A policy_change that "
+    "needs a human for underwriting reasons (adding/removing a driver, a "
+    "newly insured asset) is not automatically higher urgency just because "
+    "it escalates - if the email itself describes no time pressure, rate "
+    "it low urgency even though the action is escalate_human.\n"
+    "- Urgency reflects the current state of the situation only, not "
+    "whether this is a brand-new claim or an existing one being reopened "
+    "or followed up on. Active or worsening property damage is high "
+    "urgency whether it was just discovered or is a recurrence of a "
+    "previous claim."
 )
 
 

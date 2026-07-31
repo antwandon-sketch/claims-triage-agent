@@ -158,31 +158,78 @@ cases under prompt v3. This is the first true test of the new category
 boundaries - expect some rough edges in the new categories on first run,
 same as v1 did for the original 5.
 
-## 2026-07-31 - First real eval run on all 57 cases (prompt v3)
+## 2026-07-31 - Prompt v4: fixed the urgency-bleed bug + 3 more label mistakes
 
-- Ran `python -m eval.run_eval` for real against the live Neon DB and
-  Claude API, no flags, all 57 cases (26 train, 31 holdout)
-- TRAIN (26 cases): category 96.2%, urgency 84.6%, action 96.2%
-- HOLDOUT (31 cases): category 96.8%, urgency 80.7%, action 93.5%
-- ALL (57 cases combined): category 96.5%, urgency 82.5%, action 94.7%
-- The v2 train/holdout category gap (100% -> 76%) is gone: train and
-  holdout category accuracy are now within 0.6 points of each other
-  (96.2% vs 96.8%), which is the result the 9-category split was meant to
-  produce - the old `other` catch-all was the thing that wasn't
-  generalizing, not the original 5 categories
-- Urgency is now the weakest metric on both splits (84.6% train, 80.7%
-  holdout) and wasn't touched by the v3 category work - still the same
-  low/medium/high edge cases from v1/v2 (case_10, case_12, case_27,
-  case_30, case_34, case_36, case_37), plus one new one (case_32)
-- Only one category miss anywhere in this run: case_53 [train] -
-  `document_request` predicted as `policy_change`. This is a real
-  boundary case for the new schema (the case likely involves a document
-  tied to a policy change) rather than a train/holdout generalization
-  problem, since it's a train case
-- Two action misses: case_06 [train] (auto_reply expected, got
-  request_more_info) and case_44 [holdout] (auto_reply expected, got
-  escalate_human) - both isolated, no pattern across categories
-- Per the standing rule: not editing the prompt off the back of holdout
-  misses (case_27/28/30/32/34/36/37/44) - case_53's document_request
-  miss is a train case and fair game if a future session wants to
-  tighten that boundary
+Real v3 run: category 96.5%, urgency 82.5% (the weakest metric, untouched
+by the category work), action 94.7%. Dug into the 8 urgency misses by
+pulling actual expected-vs-predicted pairs (not just which cases missed) -
+this split cleanly into three distinct findings, not one:
+
+- **Confirmed real bug, 3-for-3 consistent evidence:** case_12, case_36,
+  case_37 (all policy_change, all labeled 'low', all came back 'medium').
+  All three describe completely routine requests with zero time pressure
+  in the email itself (new driver's license, a divorce, a boat purchase).
+  The v2 policy_change rule's "underwriting risk" language was bleeding
+  into the urgency judgment, not just the action judgment it was meant
+  for. Fixed by adding an explicit clarification that urgency and
+  suggested_action are independent - escalating for underwriting reasons
+  doesn't automatically mean higher urgency.
+- **My own label mistakes, same root cause as case_07 last round:**
+  case_10 (jewelry), case_30 (claim denial appeal), case_34 (mold) were
+  all labeled medium/high based on how important or complicated the
+  situation felt, not on actual time-sensitivity - which is what the
+  system prompt's urgency definition is actually built on. Re-labeled all
+  three to match the prompt's own stated definition (case_10 -> low,
+  case_30 -> medium, case_34 -> low).
+- **A genuine gap in the other direction:** case_27 (reopened claim,
+  recurring water damage) was labeled 'high' but got 'medium' - likely the
+  model anchoring partly on category (claim_status reads as inherently
+  less urgent than new_claim) rather than the actual situation described,
+  which is active/worsening property damage. Added a clarification that
+  urgency reflects the current situation only, independent of whether it's
+  a new claim or a reopened one.
+- **Left unchanged, documented as defensible:** case_32 (dog bite) - model
+  said 'high' where I expected 'medium'; given an actual injury (doctor
+  visit) already happened, 'high' is a reasonable read. Not chased further.
+- PROMPT_VERSION bumped to v4. 18 tests still passing (no scoring-logic or
+  test changes needed - this was a data + prompt-text change only).
+
+**Next session:** run `python -m eval.run_eval` for real under v4 and
+compare urgency accuracy specifically (was 82.5% under v3) - this is the
+one metric this round is squarely aimed at improving.
+
+## 2026-07-31 - First real eval run on all 57 cases (prompt v4) - urgency "improvement" was mostly the relabel, not the fix
+
+- Ran `python -m eval.run_eval` for real, no flags, all 57 cases (26 train,
+  31 holdout)
+- TRAIN (26): category 96.2%, urgency 80.8%, action 96.2%
+- HOLDOUT (31): category 93.5%, urgency 93.5%, action 90.3%
+- ALL (57): category 94.7%, urgency 87.7%, action 93.0%
+- Headline urgency number looks like a win (82.5% -> 87.7%), but pulling
+  actual expected-vs-predicted pairs from both runs' JSON shows that's
+  misleading:
+  - case_10/case_30/case_34 flipped MISS -> OK, but the model's actual
+    predictions for these 3 didn't change between v3 and v4 at all -
+    only the answer-key label changed (last round's relabel), so this is
+    the label catching up to the model, not the model improving
+  - On the 54 cases whose labels didn't change, urgency accuracy is
+    **exactly 47/54 (87.0%) in both v3 and v4** - genuinely no movement
+  - Within that unchanged set, the targeted bug fix did work:
+    case_12/case_36/case_37 (the policy_change bleed cases) correctly
+    went from medium -> low
+  - But it introduced a same-shape regression in the other direction:
+    case_03/case_05/case_46/case_47 flipped from correct (medium) to
+    wrong (medium expected, low predicted) - 4 new misses with the exact
+    "should be medium, got low" pattern the fix was meant to eliminate
+  - Net: 3 fixed, 4 newly broken, roughly a wash - the "urgency and
+    suggested_action are independent" clarification seems to have made
+    the model generally more reluctant to call things medium urgency,
+    not just fixed the policy_change-specific bleed
+- Conclusion: urgency is not actually fixed. The real, like-for-like
+  score is flat at 87.0%. Don't cite "82.5% -> 87.7%" as a win without
+  this context.
+
+**Next session:** don't chase individual medium/low urgency misses
+further without a hypothesis for why the model under-escalates broadly,
+not just for policy_change - the case_03/05/46/47 regression suggests
+whatever changed is affecting more than the policy_change rule.

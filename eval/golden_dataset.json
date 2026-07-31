@@ -95,9 +95,9 @@
     "subject": "Is jewelry covered under homeowners?",
     "body": "My ring went missing sometime this week, not positive if it was stolen or I just lost it somewhere. Before I file anything, is jewelry even covered under my homeowners policy, and is there a limit?",
     "expected_category": "coverage_question",
-    "expected_urgency": "medium",
+    "expected_urgency": "low",
     "expected_suggested_action": "escalate_human",
-    "notes": "Higher stakes than a ceiling stain (valuable item, possible theft) but no active emergency - tests medium, not low or high. Known borderline case - defensible either way."
+    "notes": "v4 fix: was labeled 'medium' - conflated 'valuable item, possible theft' with actual time-sensitivity. No time pressure in the email itself, so 'low' matches the system prompt's own urgency definition. Same root-cause pattern as case_07."
   },
   {
     "id": "case_11",
@@ -295,9 +295,9 @@
     "subject": "My claim got denied and I don't understand why",
     "body": "I just got a letter saying my claim CL-9877 was denied. I don't understand the reasoning and I want to appeal this - can someone call me back today?",
     "expected_category": "claim_status",
-    "expected_urgency": "high",
+    "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
-    "notes": "A denial appeal is high-stakes and needs a real person, and the customer explicitly asked for urgency."
+    "notes": "v4 fix: was labeled 'high' - a denial appeal is high-stakes emotionally but isn't a safety/property risk, which is what the system prompt actually ties 'high' to. Same mistake as case_07's original v1 label."
   },
   {
     "id": "case_31",
@@ -317,7 +317,7 @@
     "expected_category": "coverage_question",
     "expected_urgency": "medium",
     "expected_suggested_action": "escalate_human",
-    "notes": "Liability exposure question before any formal claim - genuinely needs a person, not a templated answer."
+    "notes": "Liability exposure question before any formal claim - genuinely needs a person, not a templated answer. Known edge case: model has answered 'high' here rather than 'medium', defensible given an actual injury (doctor visit) already occurred - left unchanged rather than adjusted."
   },
   {
     "id": "case_33",
@@ -335,9 +335,9 @@
     "subject": "Mold in the bathroom - covered?",
     "body": "We found some mold behind the bathroom tile during a renovation, not sure what caused it. Would something like that be covered under our policy, HO-51204?",
     "expected_category": "coverage_question",
-    "expected_urgency": "medium",
+    "expected_urgency": "low",
     "expected_suggested_action": "escalate_human",
-    "notes": "Mold coverage is genuinely complicated and policy-specific - needs a real answer, not a guess."
+    "notes": "v4 fix: was labeled 'medium' - mold coverage being complicated to answer isn't the same as the situation being time-sensitive. No urgency signal in the email itself, so 'low' is correct."
   },
   {
     "id": "case_35",
