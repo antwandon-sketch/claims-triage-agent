@@ -861,3 +861,715 @@ a coincidence - see PROJECT.md's Conventions section for what this means
 for how coverage_question gets fixed next, and the "Immediate next
 steps" section for the v10 plan (an architectural fix, not another
 wording pass).
+
+## 2026-08-01 - Prompt v10: extract-then-decide architecture for coverage_question - NOT shipped, real cross-category regression found
+
+Implemented the architectural fix flagged at the end of the v9 entry:
+instead of asking the model to reason about coverage_question's
+suggested_action in prose (three straight attempts, v7/v8/v9, each fixed
+one case while breaking another), the model now only extracts 6
+independently-defined booleans (references_specific_incident,
+has_policy_or_claim_number, has_liability_or_dispute_signal,
+has_underwriting_or_nonstandard_use_signal, asks_feature_existence_only,
+cause_investigated_and_unresolved), scoped to populate only when
+category is coverage_question. suggested_action for that category is
+then computed by a new deterministic Python function,
+score_coverage_question(), added directly in classifier.py and called
+from classify_email() - not asked of the model at all. The 6 fields and
+the decision table were validated standalone first, against the real API,
+in a separate design pass (see eval/coverage_question_FINAL_DESIGN.md)
+before any of this touched classifier.py. PROMPT_VERSION -> v10.
+
+**coverage_question itself: clean win, no ambiguity.** Every
+coverage_question case's action field was correct in all 3 full-suite
+runs. Two cases that were on the v7 baseline miss list - case_35 and
+case_55 - are now correct 3/3. The deterministic function removes any
+possibility of the model flip-flopping on this category's decision
+boundary, by construction.
+
+**Aggregate numbers, 3 runs, no code changes between them:**
+- Run 1: category 96.5%, urgency 94.7%, action 94.7%
+- Run 2: category 96.5%, urgency 93.0%, action 96.5%
+- Run 3: category 98.2%, urgency 93.0%, action 94.7%
+- v7 baseline: category 96.5%, urgency 93.0%, action 96.5%
+
+Aggregate numbers alone read as a wash - in range with v7, arguably
+slightly better. Per-case miss lists tell a different story, exactly as
+the "always check actual expected-vs-predicted, not just the aggregate"
+rule predicts.
+
+**case_05 (claim_status) - investigated, confirmed pre-existing, not a
+v10 effect.** Missed (auto_reply instead of escalate_human) in all 3 v10
+runs, and wasn't on the previously-recorded v7 baseline miss list, so it
+looked new. Git-stash A/B against the committed v7 code directly (not
+memory of a prior run) showed v7 gives the same wrong answer, 3/3. The
+earlier v7 baseline miss list from the v9 entry just didn't happen to
+surface it that day. Not a regression.
+
+**case_56 (billing_issue) - investigated, CONFIRMED real regression, not
+noise.** "Can I switch to annual payments?" - a simple account-level
+billing question, expected escalate_human. Missed (usually auto_reply)
+in 2 of 3 full-suite v10 runs. Matched git-stash A/B testing on both
+sides of the diff, isolating classifier.py alone:
+- v7 (reverted): 6/6 correct (escalate_human) across two independent
+  batches of 3 runs each.
+- v10 (restored, verified byte-identical after each stash/pop): 2/8
+  correct across the 3 full-suite runs plus 5 additional isolated runs -
+  auto_reply, auto_reply, request_more_info, auto_reply, escalate_human,
+  auto_reply, escalate_human, auto_reply.
+
+billing_issue's own SYSTEM_PROMPT text is byte-for-byte unchanged
+between v7 and v10 - only the coverage_question bullet was reworded and
+shortened, and 6 new boolean properties were added to the shared tool
+schema (populated only for coverage_question, but present in the schema
+sent to the model on every call, regardless of category). Root cause not
+conclusively isolated - the two live candidates are the coverage_question
+bullet's rewrite shifting the relative position/salience of neighboring
+category text, or the schema-size increase itself shifting how the model
+attends across categories - but the effect itself is not in question: a
+change scoped entirely to coverage_question destabilized a specific
+billing_issue case from rock-stable-correct to mostly-wrong. This is the
+third time this project has seen a coverage_question-adjacent edit leak
+into an unrelated category (case_25 under v8, case_04/case_05 under v9,
+now case_56 under v10) - confirms this isn't incidental to prose
+rewrites specifically; a structural fix to the target category was not
+sufficient to contain the blast radius, because the tool schema and
+system prompt are both still shared, global artifacts sent on every
+call regardless of category.
+
+**Stress tests: no regression, but baseline assumption was wrong.**
+Ran the 10 safety-critical + 6 prompt-injection cases (16 total) under
+v10, then re-verified under reverted v7 via the same stash A/B method.
+Identical results both times: safety-critical 10/10 clean (no false
+negatives, no false positives). Prompt-injection: 1 false positive
+(inj_01, over-triggers safety_instruction on worsening water damage) and
+3 successful injections (inj_03, inj_04, inj_06 - the classifier followed
+injected text instead of the actual email content), for 2/6 clean. v10
+does not make this worse - it's byte-identical to v7 - but this means
+the stress suite was never actually passing fully on the current
+baseline, contradicting the assumption going into this round. This is a
+pre-existing gap, not something v10 introduced, and out of scope for
+this round, but it's a real, unresolved weakness that should get its own
+investigation.
+
+**Decision: v10 not shipped.** classifier.py, .env (PROMPT_VERSION), and
+this log entry are all left uncommitted in the working tree per explicit
+instruction - nothing pushed or committed this round regardless of
+outcome. The extract-then-decide architecture itself is validated and
+should ship eventually (it fully solved the category's own instability,
+which no prose rewrite managed across 3 attempts) - but not before
+case_56's mechanism is understood, since shipping it now would mean
+knowingly trading a solved coverage_question problem for a new,
+unexplained billing_issue one. See PROJECT.md for next steps.
+
+## 2026-08-01 - case_56 root-cause experiment: schema-size hypothesis tested and NOT confirmed
+
+Follow-up to the v10 entry above, testing the flagged hypothesis directly:
+is case_56's regression caused by the 6 coverage_question booleans being
+present (usually null) in the tool schema on every call, including
+billing_issue ones - i.e. schema-size/attention-dilution - or is it the
+coverage_question SYSTEM_PROMPT bullet's rewrite instead?
+
+**Variant built (stash-isolated - backed up v10's classifier.py to
+/tmp, edited in place, tested, restored from the backup, diffed against
+the pre-experiment state to confirm byte-identical restoration; nothing
+committed):** split the one tool schema into CLASSIFY_EMAIL_TOOL_BASE (the
+6 booleans removed entirely - not present-but-null, structurally absent
+from the JSON schema) and CLASSIFY_EMAIL_TOOL_EXTENDED (the current v10
+schema). classify_email() calls BASE first; only if the returned category
+is coverage_question does it make a second round-trip with EXTENDED to
+extract the 6 booleans and compute suggested_action. Every non-
+coverage_question call - including every billing_issue call - now sees a
+tool schema with zero trace of the 6 fields, identical in shape to v7's
+original schema. The SYSTEM_PROMPT text (including the reworded
+coverage_question bullet) was held constant, still v10's version, in
+both the control and the variant, so this isolates the schema-size
+variable specifically. Confirmed via direct inspection that
+CLASSIFY_EMAIL_TOOL_BASE's properties exactly match v7's field set with
+no coverage_question fields present.
+
+**Result: regression persists. Hypothesis not confirmed.** All 4
+billing_issue cases run 3x each against the variant:
+- case_45: 3/3 correct (was already stable-correct under both v7 and v10).
+- case_57: 3/3 correct (also already stable-correct under both).
+- case_55: 3/3 wrong on urgency (medium expected, got low) - action
+  correct all 3. This one had been fixed under v10 (3/3 correct, all
+  fields, confirmed in the v10 entry above) but regresses again here.
+- case_56: 3/3 wrong, but landed on a single stable wrong answer
+  (request_more_info all 3 times) rather than v10's flakiness across
+  multiple different wrong-and-occasionally-right values (auto_reply/
+  request_more_info/escalate_human, 2/8 correct). Still 0/3 correct.
+
+Removing the 6 fields from the schema entirely, for every call that
+isn't coverage_question, did not restore case_56 to v7's clean 6/6
+correct - it's still wrong on every run. That rules out "the properties
+are merely present in the schema" as the mechanism, at least on its own.
+Two things point away from schema size and toward the SYSTEM_PROMPT
+bullet rewrite instead: (1) the one variable this experiment didn't
+touch - the reworded coverage_question bullet text, present in both v10
+and this variant - is the thing still shared between the two conditions
+that both show the regression; (2) case_55, previously fixed under v10,
+broke under this variant even with the schema stripped down to v7's
+exact shape, which cuts against a schema-driven story generally taking
+this experiment's premise at face value.
+
+**A finding this experiment wasn't designed to produce, worth flagging
+anyway:** case_56 shifted failure mode, not just failure rate - flaky
+under v10 (2/8, three different wrong values across runs) vs. stably
+wrong under this variant (0/3, one consistent wrong value). If schema
+presence were pure noise/dilution, removing it should plausibly reduce
+variance without necessarily fixing the underlying judgment - which is
+roughly what happened, just still wrong. Consistent with the SYSTEM_PROMPT
+bullet driving the underlying (wrong) judgment, with the schema's
+presence or absence affecting how much the model's answer wobbles around
+that wrong judgment rather than whether it's wrong.
+
+**Next step implied by this result:** test the SYSTEM_PROMPT bullet
+directly - hold the schema constant (full v10 EXTENDED schema, as
+currently shipped-but-uncommitted) and swap only the coverage_question
+bullet text back to v7's original wording, then re-run case_55/case_56/
+the full billing_issue set the same way. Not done this round per scope
+("do not fix anything else"); this is a diagnostic follow-up, not a fix.
+
+classifier.py restored to the exact v10 state (diffed byte-identical
+against the pre-experiment snapshot). Nothing committed or pushed.
+
+## 2026-08-01 - case_56/case_55 root-cause experiment 2: prompt bullet reverted, schema held at v10 - partial confirmation, not full
+
+Follow-up to the schema-isolation experiment above, testing the variable
+it left untouched: with v10's full EXTENDED schema (all 6 booleans
+present, unchanged), swap ONLY the coverage_question SYSTEM_PROMPT
+bullet back to v7's exact original wording - nothing else changes.
+Confirmed via direct string comparison against `git show HEAD:classifier.py`
+that the swapped-in bullet is byte-identical to v7's; confirmed the
+schema and score_coverage_question() wiring were untouched (still v10).
+Same stash-isolated method as before: backed up v10's classifier.py,
+edited in place, tested, restored from backup, diffed byte-identical
+against the pre-experiment snapshot. Nothing committed.
+
+Note: the first attempt at this edit added a sentence instructing the
+model to still populate the 6 fields, since v7's original text has zero
+mention of them. Caught before running - that's not a pure swap, it's an
+addition on top of v7's wording, and the task was explicit that nothing
+else should change. Reverted to the literal, unmodified v7 bullet - the
+model has to infer when/how to populate the 6 booleans from the schema's
+own per-field descriptions alone (each already says "ONLY relevant when
+category is coverage_question... omit entirely for any other category"
+plus its full definition), with no prompt-level instruction pointing it
+there.
+
+**Result: real improvement, but not a clean fix. Prompt bullet is A
+factor, not THE sole and complete cause.**
+
+| Case | v7 | v10 | Schema-stripped (exp. 1) | Prompt-reverted (exp. 2) |
+|---|---|---|---|---|
+| case_45 | correct | correct | 3/3 correct | 3/3 correct |
+| case_57 | correct | correct | 3/3 correct | 3/3 correct |
+| case_55 | *(baseline miss)* | 3/3 correct | 3/3 wrong (urgency) | 3/3 wrong (urgency, same failure) |
+| case_56 | 6/6 correct | 2/8 correct (flaky) | 0/3 correct (stably wrong) | **2/3 correct** |
+
+case_56 improved substantially with the prompt bullet reverted - 2/3
+correct here, versus 2/8 under original v10 and 0/3 under the
+schema-stripped variant. That's real movement toward v7's behavior, and
+of the two single-variable experiments this is the one that moved the
+needle. But it's still not v7's clean 6/6 - one of the three runs
+(run 2) came back auto_reply, matching one of v10's original wrong
+answers. Reverting the bullet closes most but not all of the gap.
+
+case_55 tells a stranger story: it was **fixed** under original v10
+(3/3 correct, confirmed in the first v10 entry above), but breaks the
+same way (urgency: expected medium, got low) under **both** experimental
+variants - schema stripped, and now prompt reverted. Neither single
+change explains case_55's v10 fix; it only comes out correct in the
+exact, specific combination of v10's schema AND v10's bullet together.
+Changing either one alone away from v10, independently, breaks it again.
+
+**Conclusion, stated plainly per the instruction not to force one:** the
+coverage_question prompt bullet is a real, meaningful contributor to
+case_56's regression - removing it recovers most of the gap - but it is
+not sufficiently isolated as the sole cause on this evidence (n=3 per
+cell, noting the small sample). And case_55's behavior isn't explained by
+either variable in isolation at all; it looks like an interaction effect
+between the specific v10 bullet and the specific v10 schema that neither
+single-variable experiment can characterize further without a third,
+differently-shaped test (e.g. more repeats per cell, or varying the
+bullet and schema independently across more combinations than these two
+corner cases). That further isolation was not run this round - out of
+scope per "do not fix anything else."
+
+**Updated go/no-go, folding in all three experiments (v10 baseline +
+both isolation experiments):** still NO-GO. All three tests point the
+same direction - a change scoped to coverage_question has real, still
+partially-unexplained effects on at least two billing_issue cases
+(case_55, case_56) that do not resolve cleanly when either the schema or
+the prompt bullet is reverted individually. The extract-then-decide
+architecture remains the right direction (coverage_question's own
+numbers are clean across all three experiments), but shipping v10 as-is
+would mean shipping a known, only-partially-diagnosed cross-category
+regression. Next step, if pursued: a combined/interaction-focused test
+- larger repeat counts per cell (5-10 instead of 3) to shrink the
+sampling noise this round's small n leaves open, and/or testing the
+other two corners (v7 bullet + v7 schema as a sanity-check control, and
+a version of v10's bullet with the "three prior attempts" meta-narrative
+stripped out in case that specific framing, not the field references,
+is what's shifting the model's behavior on adjacent categories).
+
+classifier.py restored to the exact v10 state (diffed byte-identical
+against the pre-experiment snapshot, confirmed again after this second
+experiment). Nothing committed or pushed.
+
+## 2026-08-01 - case_56/case_55 root-cause experiment 3: full 4x2x10 factorial, isolated scratch script (not classifier.py) - resolves both cases, differently
+
+Direct test of whether the schema x bullet interaction seen across the
+two prior single-variable experiments was real or a small-sample
+artifact (both prior experiments used only 3 repeats per cell). Built
+all 4 combinations of {schema: v10 extended | stripped-to-v7-shape} x
+{bullet: v10 rewritten | v7 original} as an isolated scratch script
+(`run_interaction_experiment.py`, session scratchpad) that calls the
+Anthropic API directly - classifier.py was never touched, edited, or
+stashed for this round; the script imports the current classifier.py
+read-only for its live v10 SYSTEM_PROMPT/schema, plus a separate module
+loaded from a `git show HEAD:classifier.py` snapshot for the true-
+committed-v7 reference. 10 repeats per (combo, case) cell, both case_55
+and case_56, 80 API calls total.
+
+**Validation done first, per the instruction not to treat combo D's
+equivalence to true v7 as given:** confirmed the stripped schema is
+exactly deep-equal to the true v7 schema pulled from git (`True`), and
+the reconstructed v7-bullet SYSTEM_PROMPT is exact-string-equal to the
+true v7 SYSTEM_PROMPT pulled from git (`True`). Combo D is not merely
+"should be" v7 - it's byte-for-byte verified to be v7, both schema and
+prompt.
+
+**Results table (n=10 per cell):**
+
+| Combo | case_55 correct | case_55 wrong values | case_56 correct | case_56 wrong values |
+|---|---|---|---|---|
+| A: schema=v10 extended, bullet=v10 (true v10) | 10/10 | - | 8/10 | auto_reply x2 (expected escalate_human) |
+| B: schema=stripped, bullet=v10 | 0/10 | urgency low (expected medium), all 10 | 8/10 | auto_reply x2 |
+| C: schema=v10 extended, bullet=v7 | 0/10 | urgency low, all 10 | 9/10 | auto_reply x1 |
+| D: schema=stripped, bullet=v7 (=true v7, verified) | 0/10 | urgency low, all 10 | 10/10 | - |
+
+**Analysis question 1 - does D reproduce true v7 behavior?** Half yes,
+half no, and the "no" half turns out not to be a problem. case_56: yes,
+clean 10/10, matching the true-v7 6/6 found in the very first stash A/B
+test earlier this session. case_55: D gets it wrong 10/10 (urgency low
+vs expected medium) - at first glance this looks like the reconstruction
+failing to reproduce v7. It isn't: case_55 has been on the documented
+v7 baseline miss list since before any of this session's coverage_question
+work started (see the earlier v7-baseline miss list: case_13, 32, 35,
+44, 53, 55). D getting case_55 wrong 10/10, consistently, on the exact
+same field (urgency), is D correctly reproducing a real, pre-existing,
+already-known v7 bug - not evidence the reconstruction is flawed. This
+is the first time that known miss has been verified at n=10 rather than
+a single historical run, and it turns out to be completely stable, not
+flaky, under true v7.
+
+**This reframes case_55 entirely.** It was never a new regression
+introduced by partial reversion, as experiments 1 and 2 characterized
+it. It's v7's pre-existing bug, which happens to get fixed ONLY by the
+exact, complete v10 configuration (combo A: 10/10, the only combo where
+either variable alone isn't enough) - schema alone doesn't fix it (B:
+0/10), bullet alone doesn't fix it (C: 0/10), only both together do.
+That's a genuine, cleanly-reproduced interaction effect, but it's a
+positive one: v10's specific combination accidentally fixes a
+pre-existing bug that neither piece fixes alone. Nothing about case_55
+argues against shipping v10 - if anything it's a small bonus, contingent
+on shipping the whole thing together rather than either piece alone.
+
+**Analysis question 2 - do A/B/C show meaningfully separated error
+rates on case_56, or converge?** They converge, and the convergence
+itself is the finding. At n=10: A=80%, B=80%, C=90%, D=100% - a mild,
+roughly monotonic gradient from "full v10" to "full v7," not the sharp
+20%-vs-70%-vs-90%-style separation the question was checking for. The
+prior small-sample results (v10 2/8=25% combined; schema-stripped
+0/3=0%; prompt-reverted 2/3=67%) look, in hindsight, considerably
+noisier than this cleaner batch suggests - none of those earlier
+per-experiment rates land anywhere near where the same conditions land
+here.
+
+**A finding beyond what this experiment was designed to catch:** combo
+A's fresh n=10 batch here (8/10=80% correct) doesn't match the earlier,
+independently-collected v10-exact data from the very first investigation
+(3 full-eval-suite runs + 5 isolated calls, 2/8=25% correct) - same
+condition, same case, different batches, very different observed rates.
+Pooling both v10-exact batches: 18 total observations, 10 correct
+(55.6%). That's a wide spread across batches collected at different
+times using the identical configuration, which means some of the
+variance this whole investigation has been chasing isn't explained by
+schema or bullet at all - there's real batch-to-batch variance in the
+model's own behavior on this specific case that neither tested variable
+accounts for. Pooling true-v7 data the same way (the original 6/6 stash
+test + this round's clean D=10/10): 16/16, no variance at all. The
+asymmetry is real and informative on its own: v7 is rock-stable on this
+case across every sample taken so far; v10 is not, regardless of which
+batch or how the schema/bullet are configured within the v10-adjacent
+combos (A/B/C all show real miss rates, 10-20% in this round's cleaner
+sample, higher in the earlier noisier one).
+
+**Analysis question 3 - real interaction effect, real single-variable
+cause obscured by noise, or genuine model flakiness regardless of
+condition? Answer differs by case, stated plainly:**
+- **case_55: a real, n=10-confirmed interaction effect**, not noise -
+  clean 100%-vs-0% separation, deterministic-looking at this sample
+  size. But it's not the regression it was described as in experiments
+  1 and 2; it's a pre-existing v7 bug that only the complete v10 config
+  fixes.
+- **case_56: mostly genuine model flakiness, present under every
+  condition tested including true v7's own combo D, plus real
+  batch-to-batch variance this experiment's design doesn't explain.**
+  The schema x bullet variable does still show a small, consistent
+  directional effect (true v10 combo A is the worst-performing of the
+  four combos in this batch, true v7 combo D the best), so this isn't
+  pure noise either - but it's a modest effect on top of real
+  underlying model variance, not the dramatic near-total failure the
+  small-sample experiments implied.
+
+**Updated go/no-go, folding in all four experiments (v10 baseline + all
+three isolation/interaction experiments):** still NO-GO, but the case
+for concern is now narrower and better-characterized than at any prior
+point. case_55 is no longer a live concern - v10 fixes a pre-existing
+bug, doesn't introduce a new one. case_56 remains the one confirmed,
+real, cross-category effect: true v7 is stable-correct on it in every
+sample taken (16/16 across two independent tests), true v10 is not
+(pooled 10/18 = 55.6%, and even the cleanest, most favorable single
+batch is 80% not 100%). The magnitude is smaller and less alarming than
+first estimated, but the direction and existence of a real gap is now
+confirmed at meaningfully larger sample sizes than the original
+concern was raised on, and it remains unexplained beyond "true v7 never
+shows it and every v10-adjacent configuration sometimes does." Shipping
+v10 now would mean shipping this specific, narrow, well-characterized
+gap knowingly; recommend either root-causing it further (larger batches
+run further apart in time, to separate genuine model/session drift from
+anything mechanistic) or accepting it explicitly as a known, bounded
+tradeoff if coverage_question's fix is judged more valuable than this
+one case's roughly-halved reliability - that's a product call, not
+something further testing alone will resolve.
+
+classifier.py was not touched this round (isolated scratch script only,
+outside the tracked file); working tree diff against v7 unchanged from
+before this experiment. Nothing committed or pushed.
+
+## 2026-08-01 - case_56 root-cause experiment 4: interleaved A/D, time-drift ruled out - effect confirmed real and configuration-driven
+
+Final diagnostic round, controlling for the one variable the n=10
+factorial couldn't rule out: whether the 55.6%-vs-100% gap between
+pooled true-v10 and true-v7 samples was a real configuration effect or
+just time-based drift, since those samples were collected in separate
+blocks at different points in the session. Ran combo A (true v10:
+schema=v10 extended, bullet=v10) and combo D (true v7: schema=stripped
+to v7's shape, bullet=v7 original - the same combination already
+verified deep-equal/exact-string-equal to the true committed v7 in the
+prior experiment) INTERLEAVED - A, D, A, D, ... - 15 calls each, 30
+total, single continuous run, case_56 only. Interleaving means both
+conditions experience identical wall-clock conditions call-by-call, so
+if the earlier gap were drift (model degrading or fluctuating over the
+session generally), both A and D should show elevated errors in the
+same time windows. If it's a real configuration effect, errors should
+cluster entirely in A regardless of when in the sequence they occur.
+classifier.py untouched again - same isolated scratch script pattern as
+experiment 3, reading the tracked file read-only plus the git-show v7
+snapshot module.
+
+**Raw sequence (call order):**
+
+calls 1-6: A OK, D OK, A OK, D OK, A OK, D OK
+call 7: **A MISS** (auto_reply) | call 8: D OK
+calls 9-14: A OK, D OK, A OK, D OK, A OK, D OK
+call 15: **A MISS** (auto_reply) | call 16: D OK
+call 17: **A MISS** (auto_reply) | call 18: D OK
+calls 19-28: A OK, D OK, A OK, D OK, A OK, D OK, A OK, D OK, A OK, D OK
+call 29: **A MISS** (auto_reply) | call 30: D OK
+
+**Tally: A (true v10) 11/15 (73.3%). D (true v7) 15/15 (100%).**
+
+All 4 misses landed in A; D never missed once, including on the calls
+immediately adjacent to every single A miss (call 8 right after call
+7's miss, call 16 right after call 15's, call 18 right after call 17's,
+call 30 right after call 29's). If there were shared time-based drift,
+D should have caught at least some of that same-window degradation -
+it caught none. The misses also don't cluster at the start, middle, or
+end of the sequence - they're spread across calls 7, 15, 17, and 29,
+roughly evenly through the full run. Both signatures point the same
+way: this is not drift.
+
+**Comparison against the two prior batches:**
+
+| Batch | Design | A (true v10) | D (true v7) |
+|---|---|---|---|
+| Original investigation | mixed (full-eval-suite runs + isolated calls) | 2/8 (25%) | 6/6 (100%) |
+| Factorial (exp 3) | block (10 A, then 10 D, separately) | 8/10 (80%) | 10/10 (100%) |
+| This round | interleaved (A/D alternating, single run) | 11/15 (73.3%) | 15/15 (100%) |
+
+The interleaved result lands close to the factorial batch (73.3% vs
+80%), not close to the original investigation's much lower 25% - the
+original figure now looks like it was an unusually unlucky small
+sample (n=8) rather than representative. D is unanimous across every
+batch and every design so far: 100% correct, zero misses, in 31
+independent samples spanning three separate collection sessions and two
+different methodologies (block and interleaved).
+
+**Fully pooled totals, all three batches combined:**
+- True v10 (combo A): 21/33 correct = **63.6%**
+- True v7 (combo D): 31/31 correct = **100%**
+
+**Answer to "does this hold up as real and configuration-driven, or
+does it look like drift now that time is controlled for?" - plainly:
+real and configuration-driven, not drift.** The interleaved design was
+built specifically to distinguish these two explanations, and the
+result is about as clean a separation as this kind of test produces:
+zero misses in D at any point in the sequence, all misses confined to
+A, scattered rather than clustered in time. Combined with 31/31 for v7
+across every batch collected so far (100% is now backed by real sample
+size, not a small lucky run), and a v10 miss rate that has landed in
+the 20-35% range across three independently-designed collection
+methods, this is as solid as this investigation is likely to get through
+further repeat-count testing alone. More repeats at this point would
+tighten the confidence interval around ~64% but are unlikely to change
+the qualitative picture.
+
+**Recommendation, given this is the last testing-only diagnostic
+before it becomes a product decision:** stop pure diagnostic testing
+here - it has done its job. The three live options going forward are:
+(1) accept the tradeoff and ship v10, with this specific, now-precisely-
+quantified risk documented (coverage_question's own action-boundary
+instability, unsolved across 3 prior prompt-only attempts, is fully and
+cleanly fixed; in exchange, one specific known billing_issue email
+pattern drops from ~100% to ~64% reliability, with no evidence of
+spread to the other 3 billing_issue golden cases - case_45 and case_57
+have been clean in every single test across every experiment); (2) one
+more genuine fix attempt, not just diagnosis - test whether stripping
+the "three prior attempts... each fixed one case while breaking
+another" self-referential meta-narrative out of the v10 bullet (flagged
+as a live hypothesis in experiment 2's entry, never tested) closes the
+gap while keeping coverage_question's fix intact; (3) no-go permanently
+and return to prose-only coverage_question handling, accepting its own
+known, worse, 3-attempts-and-failed instability instead. This session's
+own investigation can't choose between these three for the user - it's
+a real tradeoff now, not an open question testing can resolve further.
+
+classifier.py untouched this round; working tree diff against v7
+unchanged from before this experiment. Nothing committed or pushed.
+
+## 2026-08-01 - case_56 root-cause experiment 5: narrative text isolated and stripped - fixes case_56 cleanly, trades away case_55's accidental bonus fix
+
+Final diagnostic, testing the one specific untried hypothesis flagged
+back in experiment 2: is the self-referential "Do NOT reason about
+suggested_action in prose for this category - three prior attempts at
+writing that reasoning out in words each fixed one case while breaking
+another" narrative clause in v10's coverage_question bullet - not the
+actual extract-then-decide operational instructions - what's driving
+case_56's regression? Combo E: schema held at v10's full EXTENDED
+(byte-identical, unchanged), bullet = v10's bullet with ONLY that
+narrative clause removed (confirmed present and unique via substring
+match before editing; "Do NOT reason ... Instead, populate" replaced
+with just "Populate", nothing else in the bullet touched - same field
+names, same worked-examples reference, same "still provide some
+suggested_action value... it will be overridden" instruction, word for
+word). classifier.py untouched again - isolated scratch script only,
+reading the tracked file read-only. 20 calls total (case_55 and case_56,
+10 each).
+
+**Bullet used for combo E, printed verbatim for the record:**
+> - coverage_question: the customer is asking, before any claim is
+> filed, whether their policy would cover a specific scenario. Populate
+> the 6 fields references_specific_incident, has_policy_or_claim_number,
+> has_liability_or_dispute_signal, has_underwriting_or_nonstandard_use_signal,
+> asks_feature_existence_only, and cause_investigated_and_unresolved as
+> accurately as you can (see each field's own description for its exact
+> definition and worked examples) - suggested_action for this category
+> is computed deterministically from those 6 fields downstream, not
+> decided by you. Still provide some suggested_action value to satisfy
+> the schema, but it will be overridden and doesn't need to be precise.
+
+**Results:**
+
+| Case | True v10 (pooled) | True v7 (pooled) | Combo E (narrative stripped) |
+|---|---|---|---|
+| case_56 | 21/33 (63.6%) | 31/31 (100%) | **10/10 (100%)** |
+| case_55 | 10/10 (100%) | 0/10 (known bug) | **0/10** (reverts to known bug) |
+
+**case_56: clean, complete fix.** 10/10, matching true v7 exactly -
+better than even the best individual v10 batch (80%) and well above the
+pooled v10 rate (63.6%). Removing just the narrative, with every
+operational instruction in the bullet held constant, fully closed the
+gap on this case in this sample.
+
+**case_55: the accidental bonus fix is lost.** Reverts to 0/10, the
+same known, pre-existing v7 bug documented since before this session's
+coverage_question work started (on the original v7 baseline miss list).
+This confirms something important about how fragile that bonus fix
+actually was: case_55 was only ever fixed by the *exact* v10 bullet
+text (schema + bullet together, per experiment 3 - neither alone
+sufficed). Even this narrow, semantically-inert-seeming edit (removing
+a sentence that doesn't touch any of the actual decision logic) is
+enough to lose it. That's a striking level of sensitivity to exact
+wording - consistent with this whole project's running theme of
+coverage_question-adjacent prompt text having outsized, hard-to-predict
+effects - but it cuts the other way here: fixing case_56 costs the
+case_55 bonus.
+
+**Net assessment: this is a favorable trade, not a wash.** case_55 was
+never a v10 obligation - it's a pre-existing, already-documented,
+already-accepted-as-open v7 limitation that v10 happened to fix as a
+side effect, not something v10 is required to preserve. case_56, by
+contrast, is a real regression relative to v7's rock-solid behavior
+(100% across 31 samples). Combo E gives up a bonus that was never
+promised and eliminates a real, confirmed cost. Under combo E, both
+cases land exactly where true v7 already sits (case_56 fixed, case_55
+still broken) - meaning this specific billing_issue pair is a wash
+against v7, not a net negative anywhere, while coverage_question's own
+schema and score_coverage_question() decision function - the actual
+point of this whole redesign - are completely untouched by this change
+and should retain their full, already-validated fix (not re-verified in
+this round, since this diagnostic was scoped to case_55/case_56 only -
+flagged explicitly as the one thing NOT yet re-confirmed under this
+specific variant).
+
+**What this diagnostic sequence has NOT yet done, going into a ship
+decision:** re-run the full 57-case suite (3x, per this project's own
+stability convention) and the safety-critical/prompt-injection stress
+tests against a real "v11" candidate - v10's schema and
+score_coverage_question() unchanged, bullet with the narrative clause
+stripped - to confirm (a) coverage_question's own accuracy holds at the
+same level v10 already validated, (b) no other category shows a
+case_56-shaped effect that this narrow 2-case diagnostic wouldn't catch,
+and (c) case_56's 10/10 holds at a larger, more adversarial sample the
+way true v7's 31/31 did. This round's 20 calls are strong, clean signal
+on the specific hypothesis tested, but they are not a substitute for
+that full-suite pass.
+
+**Recommendation: promising enough to build and fully validate as a
+named v11 candidate, not yet enough to ship on this evidence alone.**
+This is the first result across five rounds of diagnosis that looks
+like an actual fix rather than a characterization of the problem - it
+directly targets the mechanism (self-referential narrative text
+apparently competing for the model's attention/reasoning budget in a
+way the operational instructions alone don't) rather than just
+re-confirming the regression exists. Suggested next step: apply this
+exact bullet edit to classifier.py, bump to a genuinely new version
+(v11), and run the full validation sequence this project always runs
+before a ship decision - 57-case suite 3x, stress tests, and a repeat
+(10x+) case_56 check specifically - before committing to ship or
+no-go. Not done this round per scope ("do not modify classifier.py
+permanently").
+
+classifier.py untouched this round; working tree diff against v7
+unchanged from before this experiment. Nothing committed or pushed.
+
+## 2026-08-01 - Prompt v11: Combo E promoted to the real implementation - case_56 fixed, one new low-severity finding, staged for review
+
+Combo E (experiment 5, above) promoted from an isolated scratch-script
+variant to the actual classifier.py. Applied the exact same edit: the
+coverage_question bullet's self-referential "Do NOT reason about
+suggested_action in prose for this category - three prior attempts at
+writing that reasoning out in words each fixed one case while breaking
+another. Instead, populate" clause replaced with just "Populate" -
+confirmed byte-identical to the validated Combo E bullet via direct
+string comparison before running anything further. Every operational
+instruction (the 6 field names, the worked-examples reference, the
+"still provide some suggested_action value... it will be overridden"
+note) is untouched, word for word. score_coverage_question() and the
+tool schema are completely unchanged from v10. PROMPT_VERSION -> v11.
+Module docstring and score_coverage_question()'s docstring updated to
+record what changed and why (see classifier.py itself).
+
+**Full decision history now: v7 (stable baseline) -> v8 (case_32 prose
+fix attempt, destabilized case_31/case_25, reverted) -> v9
+(coverage_question prose rewrite, destabilized case_04/case_05/case_10,
+reverted) -> v10 (extract-then-decide architecture - solved
+coverage_question's own instability completely, but introduced a real,
+confirmed, root-caused billing_issue regression on case_56, not
+shipped) -> v11 (v10's architecture kept exactly, only the
+self-referential narrative text identified as case_56's cause removed -
+this entry).**
+
+**3-run stability, full 57-case suite, no code changes between runs:**
+
+| Run | Category | Urgency | Action |
+|---|---|---|---|
+| 1 | 98.2% | 89.5% | 98.2% |
+| 2 | 96.5% | 91.2% | 96.5% |
+| 3 | 96.5% | 91.2% | 96.5% |
+| v7 baseline | 96.5% | 93.0% | 96.5% |
+
+Category and action both match or exceed v7 in every run. Urgency runs
+1-2 points below v7's 93.0%, within the range this project has already
+established as ordinary case-level urgency variance (case_32, case_34
+are documented pre-existing urgency flakes, present here too).
+
+**case_56: confirmed fixed at full-suite scale, not just the isolated
+diagnostic.** Zero misses across all 3 runs - matches Combo E's 10/10
+prediction and the interleaved experiment's clean signal. This is the
+first time across five rounds of investigation that case_56 has been
+clean in every single run of a batch.
+
+**case_55: landed exactly where predicted.** Wrong on urgency (expected
+medium, got low) in all 3 runs - the known, pre-existing v7 bug
+reasserting itself, exactly as experiment 5 predicted. Not a new cost;
+v10's accidental fix for this specific case was never a requirement.
+
+**New finding, not part of the pre-planned diagnostic scope - case_54
+(document_request), urgency-only, low severity:** appeared as a miss in
+all 3 v11 runs (expected low, got medium) - a case that was never
+wrong under v10 (confirmed clean in all 3 earlier v10 runs) or, freshly
+re-verified via the same stash A/B method used throughout this
+investigation, under true v7 (3/3 correct, tested directly). Combined
+v11 sample (3 full-suite runs + 5 additional isolated calls after
+restoring v11 from the stash): 3/8 correct (37.5%), versus v7's clean
+3/3. This is a real, non-trivial effect by the same standard applied to
+case_56 - discovered only now because this was the first full 57-case
+re-run under v11, and case_54 was outside the scope of the targeted
+case_55/case_56 diagnostics.
+
+**Severity assessment: real, but materially lower stakes than case_56
+was.** The miss is confined to urgency (low vs medium) - category
+(document_request) and suggested_action (escalate_human) are correct in
+every single v11 run and isolated call. Since this case already
+escalates to a human regardless of urgency level (naming a third-party
+mortgage company triggers escalate_human independent of urgency), the
+practical effect of this miss is a lower-priority queue placement for a
+case that still correctly reaches a human - not a wrong autonomous
+action, and not the "classifier confidently does the wrong thing"
+failure mode case_56 represented. Root cause not investigated this
+round (out of the task's stated scope); flagged for a future pass
+rather than blocking on it now, given the operational impact is
+materially smaller than what was already accepted as this session's
+main finding.
+
+**Stress tests: safety-critical clean, prompt-injection differs
+slightly from the known baseline, in the positive direction.**
+Safety-critical: 10/10, no false negatives - matches every prior round.
+Prompt-injection: 3/6 clean (inj_02, inj_05, inj_06), versus the
+previously-established 2/6 baseline (inj_02, inj_05) confirmed
+identical under both true v7 and v10 via stash A/B earlier this
+session. inj_06 - a claim_status/new_claim injection scenario, entirely
+unrelated to coverage_question - now resists the injection where it
+previously succeeded. Given v11's only change is scoped to the
+coverage_question bullet and inj_06 doesn't touch that category, this
+reads as ordinary call-to-call variance on a borderline case rather
+than anything v11-caused - not re-verified with a matched stash A/B
+this round given the stress suite's pre-existing, already-documented
+weakness is out of this task's scope and the change is in the favorable
+direction, not a regression to flag.
+
+**Go/no-go: GO, with case_54 disclosed as a known, low-severity,
+unresolved residual finding.** The primary objective - fixing
+coverage_question's action-boundary instability without the
+case_56 cross-category cost v10 introduced - is achieved and verified
+at full-suite scale, not just the targeted diagnostic. Aggregate
+numbers match or exceed the v7 baseline on every dimension except a
+1-2 point urgency dip within already-established normal variance.
+Stress tests hold at safety-critical and don't regress at
+prompt-injection. The one new finding (case_54) is real but low-stakes
+by the same failure-mode standard this whole investigation has used
+throughout (does the wrong autonomous action get taken, or just a
+priority label shift on a case still correctly escalated) - it doesn't
+change the recommendation, but it should not be omitted from what gets
+reported.
+
+**Staged, not committed - per the standing hard rule.** classifier.py
+(schema, score_coverage_question(), the narrative-stripped bullet,
+docstrings), .env (PROMPT_VERSION=v11), and this log entry are all
+sitting uncommitted in the working tree, exactly as v10's were. Nothing
+committed or pushed this round or any prior round in this investigation.

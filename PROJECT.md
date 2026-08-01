@@ -39,11 +39,11 @@ this is a portfolio piece first, a pitch second.
 | Thing | Status |
 |---|---|
 | Ingestion endpoint | `POST /inbound-email` - Flask, live-tested end to end against Neon + real Claude API |
-| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v7** (confirmed current - v8 and v9 were both built and reverted the night of 2026-07-31, see progress-log.md) |
+| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v7 still the confirmed-shipped version; v11 built, fully validated, and staged for review as of 2026-08-01 - NOT committed yet, uncommitted in the working tree pending explicit go-ahead** (v8/v9 built and reverted 2026-07-31; v10's extract-then-decide architecture solved coverage_question but introduced a root-caused billing_issue regression, not shipped; v11 = v10 unchanged except the coverage_question bullet's self-referential narrative text removed, which fixed the regression - see progress-log.md's v10 and v11 entries) |
 | Categories | 9: new_claim, claim_status, coverage_question, policy_change, billing_issue, sales_lead, complaint, document_request, other (expanded from an original 5 after v3 - see progress-log for why) |
 | Golden dataset | 57 hand-labeled cases (`eval/golden_dataset.json`), split 26 train / 31 holdout |
-| Latest full eval | Category ~96.5%, urgency ~94.7%, action ~93.0% on ALL (see progress-log.md's most recent entry for the exact current numbers - they get re-measured every prompt version) |
-| Safety-critical stress test | Separate harness (`eval/run_stress_tests.py`), 10 cases (5 real emergencies + 5 false-positive traps). Last real run: 10/10, zero false negatives |
+| Latest full eval (v11, staged) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). |
+| Safety-critical + prompt-injection stress test | `eval/run_stress_tests.py`, 16 cases (10 safety-critical + 6 prompt-injection). Safety-critical: 10/10 clean under v7/v10/v11, zero false negatives. Prompt-injection: 2/6 clean under v7 and v10 (confirmed identical via stash A/B, pre-existing, not caused by either version); 3/6 clean under v11 - a slight improvement, most likely ordinary call-to-call variance on one borderline case rather than a v11 effect, since v11's only change is scoped to coverage_question. |
 | `safety_instruction` field | New classifier output field - populated only for active physical danger (gas leak, downed power line, CO alarm, active fire, someone trapped/injured), persisted to `agent_decisions.safety_instruction` |
 | `eval_runs` table | Tracks accuracy history across prompt versions in Postgres |
 | Database | Neon Postgres - separate database from ai-consulting-lab |
@@ -63,26 +63,58 @@ inside the email body, garbled/low-signal input. Safety-critical was built
 first (highest real-world consequence); these four are next, in no fixed
 order.
 
-**Known open item:** coverage_question's auto_reply/request_more_info/
-escalate_human boundary needs a structural redesign, not another wording
-pass - three independent prompt-text attempts (v7's reword, v8's revert,
-v9's rewrite) have each fixed their targeted case(s) while destabilizing
-others nearby, inside and outside the category. See progress-log.md's v8
-and v9 entries.
+**Resolved this session:** v10's case_56 (billing_issue) regression was
+root-caused across five diagnostic rounds - schema-size isolation,
+prompt-bullet isolation, a full 4x2x10 factorial, a time-drift-controlled
+interleaved test, and finally a targeted narrative-text-only isolation -
+to the coverage_question bullet's self-referential "three prior
+attempts... each fixed one case while breaking another" narrative text,
+not the schema growth and not the operational extract-then-decide
+instructions themselves. Removing only that narrative (v11) restored
+case_56 to 0 misses across 3 full-suite runs, matching v7's clean
+behavior, while coverage_question's own fix (0 action misses,
+consistent across v10 and v11) was fully preserved. Full history in
+progress-log.md's five case_56 diagnostic entries plus the v11
+implementation entry, all dated 2026-08-01.
+
+**New, low-severity open item found during v11's validation:** case_54
+(document_request) misses urgency (expected low, got medium) in all 3
+v11 full-suite runs and a majority of isolated re-checks - confirmed
+via stash A/B that this case is clean under both true v7 and v10 (never
+a regression before v11). Category and suggested_action (escalate_human)
+are correct every time, so the case still reaches a human either way -
+this changes queue priority, not the outcome. Not root-caused this
+round (discovered only in v11's full-suite re-run, outside the
+targeted case_55/case_56 diagnostic scope); worth its own investigation
+in a future prompt version, not currently judged a blocker given the
+operational impact.
+
+**Still open, unrelated to any of this session's changes:** the
+prompt-injection stress suite (`eval/run_stress_tests.py`) has never
+passed cleanly - 2/6 under v7 and v10 (confirmed identical via
+stash A/B), 3/6 under v11 (a mild improvement, likely ordinary
+variance on one borderline case rather than anything v11-caused, since
+that case doesn't touch coverage_question at all). Needs its own
+investigation whenever it's prioritized; out of scope for all of this
+session's rounds.
 
 ---
 
 ## Open Threads
 
-- **Immediate next step:** design (not yet implement) an extract-then-
-  decide refactor for coverage_question - new tool-schema fields
-  (`references_specific_incident`, `has_policy_or_claim_number`,
-  `has_liability_or_dispute_signal`, all booleans) plus a deterministic
-  Python function computing `suggested_action` from them, instead of
-  asking the LLM to reason the whole boundary in prose. Manually trace
-  the design against all coverage_question golden cases - including
-  case_10, the edge case v9's investigation discovered - before touching
-  classifier.py.
+- **v11 is built, validated, and staged in the working tree - awaiting
+  an explicit go-ahead to commit.** Nothing in this session has been
+  committed or pushed; that decision belongs to the project owner, not
+  to future sessions picking this up automatically.
+- If shipped, root-cause case_54's new urgency miss as a follow-up -
+  low priority given the action/category are unaffected, but worth
+  understanding given this project's history of coverage_question-
+  adjacent edits leaking into unrelated categories (case_25/v8,
+  case_04+case_05/v9, case_56/v10, possibly case_54/v11 - pattern not
+  yet confirmed for this one).
+- Separately, investigate the prompt-injection stress-test gap (2-3/6
+  clean across v7/v10/v11) - not caused by any of this session's work,
+  but a real, pre-existing weakness worth its own pass.
 - Once the agent build is complete, create a portfolio-style PDF
   summarizing the build process (evals, debugging, and observability
   narrative) for job-search/interview use.

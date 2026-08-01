@@ -6,6 +6,14 @@ calling in the HVAC project, just a different schema.
 We force the model to use the classify_email tool (tool_choice) so the
 response is always valid JSON matching CLASSIFY_EMAIL_TOOL, never a stray
 paragraph we'd have to parse with regex.
+
+PROMPT_VERSION v11: the coverage_question bullet's self-referential
+"three prior attempts... each fixed one case while breaking another"
+narrative (added in v10) was root-caused as the driver of a real
+billing_issue regression (case_56) via a controlled, interleaved,
+time-drift-ruled-out experiment - see progress-log.md's 2026-08-01
+entries. Removed; every operational instruction in the bullet (field
+names, worked-examples reference, override note) is unchanged from v10.
 """
 import time
 
@@ -83,10 +91,156 @@ CLASSIFY_EMAIL_TOOL = {
                     "claims, and urgent-sounding but non-hazardous requests."
                 ),
             },
+            "references_specific_incident": {
+                "type": "boolean",
+                "description": (
+                    "ONLY relevant when category is coverage_question - omit entirely "
+                    "for any other category. True if the email describes or points to "
+                    "a specific triggering event (a particular loss, accident, damage, "
+                    "theft, injury) that has already occurred, rather than a general/ "
+                    "hypothetical question about coverage terms."
+                ),
+            },
+            "has_policy_or_claim_number": {
+                "type": "boolean",
+                "description": (
+                    "ONLY relevant when category is coverage_question - omit entirely "
+                    "for any other category. True if the email includes an explicit "
+                    "policy or claim number, or an unambiguous reference to one."
+                ),
+            },
+            "has_liability_or_dispute_signal": {
+                "type": "boolean",
+                "description": (
+                    "ONLY relevant when category is coverage_question - omit entirely "
+                    "for any other category. True if EITHER: (1) the email describes a "
+                    "third-party injury or property-damage incident that has ALREADY "
+                    "occurred or is currently happening, connected to the policyholder "
+                    "(e.g., on their property, or caused by their pet, vehicle, or "
+                    "actions) - even if nothing has been filed and no dispute has "
+                    "started yet; OR (2) the email explicitly frames a hypothetical, "
+                    "not-yet-happened scenario using liability/fault/responsibility "
+                    "language - asking whether the policyholder would be \"liable,\" "
+                    "\"responsible,\" \"at fault,\" or similar, for a potential future "
+                    "third-party injury or damage. Also True for language suggesting an "
+                    "active dispute over fault, a denial, or a contested coverage "
+                    "outcome (\"they said it's not covered,\" an active disagreement). "
+                    "False for a hypothetical, not-yet-happened scenario phrased as a "
+                    "GENERIC coverage question, without explicit liability/fault/"
+                    "responsibility language - even if it mentions a third party's "
+                    "property. Worked examples: \"my dog keeps lunging at the fence, if "
+                    "he ever got loose and bit someone, would we be LIABLE for that\" is "
+                    "True - hypothetical, but explicitly asks about liability/fault for "
+                    "a potential future third-party injury. \"if a tree in our yard ever "
+                    "fell on the neighbor's shed, does homeowners insurance TYPICALLY "
+                    "cover that kind of thing\" is False - hypothetical, mentions a "
+                    "third party's property, but is a generic \"does my policy cover "
+                    "this type of peril\" question, not an explicit liability/fault "
+                    "question."
+                ),
+            },
+            "has_underwriting_or_nonstandard_use_signal": {
+                "type": "boolean",
+                "description": (
+                    "ONLY relevant when category is coverage_question - omit entirely "
+                    "for any other category. True if the email describes an ONGOING "
+                    "business activity, a commercial use of the property, or another "
+                    "LASTING change in risk profile the policy wasn't written for (e.g., "
+                    "running a business from home, renting out a room, keeping "
+                    "livestock) - a risk the insurer would need to know about and "
+                    "potentially underwrite separately. False for routine, TEMPORARY "
+                    "personal circumstances, even if physically unusual-sounding - "
+                    "these don't change the property's risk profile or require "
+                    "separate underwriting. Worked examples: \"I run a dog-boarding "
+                    "business out of my basement\" is True (ongoing commercial "
+                    "activity). \"We have a storage pod parked in the driveway for a "
+                    "few days during a home move\" is False (temporary, routine, just "
+                    "an ordinary moving-related inconvenience)."
+                ),
+            },
+            "asks_feature_existence_only": {
+                "type": "boolean",
+                "description": (
+                    "ONLY relevant when category is coverage_question - omit entirely "
+                    "for any other category. True ONLY if the question has NO personal "
+                    "or situational anchor at all - it could be asked by any "
+                    "policyholder regardless of their specific circumstances, "
+                    "answerable with one generic yes/no fact about the policy (a lookup "
+                    "against the declarations page). False if the question is tied to "
+                    "ANY specific real, hypothetical, or ongoing personal scenario - a "
+                    "particular business, a particular pet/property/person, a "
+                    "particular item, a particular past or possible future event - EVEN "
+                    "IF the question is phrased generically using words like "
+                    "\"typically\" or asks \"or do I need something separate\" - that "
+                    "kind of generic-sounding phrasing does NOT override a real "
+                    "personal anchor. Worked examples: \"does my policy include "
+                    "roadside assistance\" is True - no personal scenario at all. \"I "
+                    "run a candle business out of my garage, does my policy cover that, "
+                    "or do I need something separate?\" is False - despite the "
+                    "generic-sounding framing, it's tied to their specific real "
+                    "business. \"If my tree fell on my neighbor's fence, does "
+                    "homeowners insurance typically cover that kind of thing?\" is "
+                    "False - anchored to their specific tree and neighbor, "
+                    "\"typically\" doesn't make it a pure lookup. Hypothetical/"
+                    "conditional phrasing (\"if X happened, would Y be included\") is "
+                    "also NOT a pure lookup on its own. One more example, same "
+                    "principle: \"does my policy include rental reimbursement\" is True "
+                    "(pure lookup); \"If my car needs repairs after a covered accident, "
+                    "would a rental be included\" is False - still requires evaluating "
+                    "whether that future scenario would meet the coverage's conditions "
+                    "(covered peril? comp/collision requirement? per-day/total limits?)."
+                ),
+            },
+            "cause_investigated_and_unresolved": {
+                "type": "boolean",
+                "description": (
+                    "ONLY relevant when category is coverage_question - omit entirely "
+                    "for any other category. True if the email indicates the cause of "
+                    "the damage/loss has already been actively examined (e.g., "
+                    "discovered or inspected during a renovation, repair, or "
+                    "investigation) and still cannot be determined. False if the cause "
+                    "is clear/undisputed, or unknown only because the customer hasn't "
+                    "investigated further yet (a passive, just-noticed observation)."
+                ),
+            },
         },
         "required": ["category", "urgency", "summary", "suggested_action", "confidence", "rationale"],
     },
 }
+
+
+def score_coverage_question(
+    references_specific_incident: bool,
+    has_policy_or_claim_number: bool,
+    has_liability_or_dispute_signal: bool,
+    has_underwriting_or_nonstandard_use_signal: bool,
+    asks_feature_existence_only: bool,
+    cause_investigated_and_unresolved: bool,
+) -> str:
+    """
+    Deterministic suggested_action for coverage_question emails, derived
+    from exhaustive reasoning over all 64 combinations of these 6 booleans
+    (see eval/coverage_question_FINAL_DESIGN.md) - not another prose
+    judgment call for the model to make. Three prior prompt-only attempts
+    at this category's action boundary (v7's reword, v8's revert, v9's
+    rewrite) each fixed a targeted case while destabilizing another; this
+    replaces that single LLM judgment with narrow LLM fact-extraction (the
+    6 booleans above) feeding this plain decision logic instead. v10
+    shipped this but introduced a billing_issue regression via unrelated
+    prompt text explaining this history to the model; v11 keeps this
+    function and the 6 fields, only removing that explanatory text.
+    """
+    if has_liability_or_dispute_signal:
+        return "escalate_human"
+    if cause_investigated_and_unresolved:
+        return "escalate_human"
+    if has_underwriting_or_nonstandard_use_signal:
+        return "escalate_human"
+    if (not has_policy_or_claim_number) or references_specific_incident:
+        return "request_more_info"
+    if asks_feature_existence_only:
+        return "auto_reply"
+    return "request_more_info"
 
 SYSTEM_PROMPT = (
     "You triage inbound email for an independent insurance agency. Read the "
@@ -108,22 +262,16 @@ SYSTEM_PROMPT = (
     "recurring damage need escalate_human.\n"
     "- coverage_question: the customer is asking, before any claim is "
     "filed, whether their policy would cover a specific scenario. "
-    "auto_reply may acknowledge the question and share general, "
-    "non-binding information (e.g. pointing to the relevant policy "
-    "section, or asking for the details needed to look into it) - but "
-    "must never state definitively that something is or isn't covered; "
-    "that determination requires an adjuster's or agent's review, even "
-    "for scenarios that seem simple or standard. Use request_more_info "
-    "when key details (policy number, scenario specifics) are missing. "
-    "Escalate_human for liability exposure, underwriting-adjacent gaps "
-    "(e.g. home-business use, or structural/property damage discovered "
-    "during a renovation or inspection where the cause is disputed or "
-    "unresolved even after investigation), or anything genuinely "
-    "ambiguous. Note: a customer simply not yet knowing what caused "
-    "something they just noticed (e.g. a new stain or mark) is not, by "
-    "itself, this kind of gap - use request_more_info to gather basic "
-    "details first; only escalate once those details point to a genuine "
-    "underwriting or liability question.\n"
+    "Populate the 6 fields references_specific_incident, has_policy_or_claim_number, "
+    "has_liability_or_dispute_signal, "
+    "has_underwriting_or_nonstandard_use_signal, "
+    "asks_feature_existence_only, and cause_investigated_and_unresolved "
+    "as accurately as you can (see each field's own description for its "
+    "exact definition and worked examples) - suggested_action for this "
+    "category is computed deterministically from those 6 fields "
+    "downstream, not decided by you. Still provide some suggested_action "
+    "value to satisfy the schema, but it will be overridden and doesn't "
+    "need to be precise.\n"
     "- policy_change: the request changes something actually written on the "
     "policy - coverage limits, drivers, insured property, address, phone "
     "number, or correcting a misspelled name on the policy. Escalate to a "
@@ -220,6 +368,16 @@ def classify_email(subject: str, body: str) -> dict:
 
     tool_use_block = next(block for block in response.content if block.type == "tool_use")
     decision = tool_use_block.input
+
+    if decision.get("category") == "coverage_question":
+        decision["suggested_action"] = score_coverage_question(
+            bool(decision.get("references_specific_incident", False)),
+            bool(decision.get("has_policy_or_claim_number", False)),
+            bool(decision.get("has_liability_or_dispute_signal", False)),
+            bool(decision.get("has_underwriting_or_nonstandard_use_signal", False)),
+            bool(decision.get("asks_feature_existence_only", False)),
+            bool(decision.get("cause_investigated_and_unresolved", False)),
+        )
 
     return {
         "decision": decision,
