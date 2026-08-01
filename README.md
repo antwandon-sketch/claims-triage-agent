@@ -29,6 +29,31 @@ table so accuracy can be tracked across prompt versions over time. The
 scoring logic itself is unit tested (`tests/test_eval_scoring.py`) with
 fixed inputs, independent of how the classifier is actually performing.
 
+**Since Phase 3 (prompt v3-v7):**
+- Prompt versions v3 through v6 shipped: category schema expanded 5 -> 9,
+  urgency-bleed bug fixed in the `policy_change` rule, `safety_instruction`
+  field + safety-critical stress harness added, and a surgical urgency fix
+  in v6, then v7 added written definitions for the 3 previously-undefined
+  categories plus a general auto_reply coverage-determination guardrail
+  (current version).
+- Golden dataset grown from 20 to 57 hand-labeled cases, split 26 train /
+  31 holdout.
+- Latest full eval (v7): ~96.5% category, ~93.0% urgency, ~96.5% action
+  accuracy on the full set.
+- Safety-critical stress harness (separate from the accuracy eval): 10/10,
+  zero false negatives.
+- Prompt-injection stress harness added (6 cases): zero actual injection
+  compliance across all 6 cases - every injected directive was resisted,
+  one explicitly named and rejected by the model. 12/16 raw pass rate
+  logged as an honest baseline; the 4 "misses" trace to ground-truth label
+  ambiguity under investigation, not model failures (see progress-log.md
+  for full detail).
+- Fixed in v7: new_claim, claim_status, and coverage_question now have
+  written definitions, plus a general guardrail preventing auto_reply
+  from making coverage/liability determinations. Open item for v8:
+  case_32 urgency flakiness introduced by the v7 reword, under
+  investigation (see progress-log.md).
+
 **Coming next:**
 - Phase 4 - a small dashboard over `agent_decisions` and `eval_runs` history
 
