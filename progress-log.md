@@ -671,3 +671,117 @@ definition in v8 to explicitly distinguish "has a claim number" from "has
 a policy number and is describing ongoing correspondence about a loss" -
 right now the model's real behavior and the definition's literal text
 disagree on this specific point.
+
+## 2026-07-31 - case_32/v8 investigation: attempted fix tried, tested under full regression, not shipped
+
+Full end-to-end summary of tonight's case_32 investigation, including a
+v8 fix that was actually implemented and eval'd before being reverted -
+recorded here in full because the process (and why it was rejected) is
+worth as much as the outcome.
+
+**Ablation methodology.** The v7 reword touched one clause in two places
+at once: (A) the escalate_human example, narrowed from "unclear-cause
+damage" to "structural/property damage discovered during a renovation or
+inspection where the cause is disputed or unresolved even after
+investigation," and (B) a new carve-out sentence ("a customer simply not
+yet knowing what caused something they just noticed... is not, by itself,
+this kind of gap"). Wrote a standalone ad-hoc script
+(`case32_ablation.py`, not part of the repo, in the session scratchpad)
+that imports the live `SYSTEM_PROMPT` from `classifier.py`, builds two
+variant strings by substituting just the disputed clause, and calls the
+Anthropic API directly with each variant substituted in - same call shape
+as `classify_email()` (model, max_tokens, tools, tool_choice, messages),
+just not literally the same function object, since `classify_email()`
+hardcodes the module-level prompt and has no override parameter.
+
+**Accidental bug, caught and fixed (kept regardless of the fix outcome).**
+The script's comparison logic ran at module import time instead of behind
+`if __name__ == "__main__":`. Reusing the module to run a third "control"
+condition (the real, unmodified full v7 text) silently re-ran the entire
+Variant 1/Variant 2 comparison a second time as a side effect - which, by
+accident, produced a second independent 5-run batch for both variants
+right when it mattered most. Fixed by wrapping the comparison in a
+`run_comparison()` function gated behind `if __name__ == "__main__":`, so
+importing the module for its helpers never re-triggers the full run
+again. This cleanup is retained in the scratchpad script independent of
+whatever happened to the actual fix - it's correct regardless.
+
+**Combined dose-response data (2 batches per variant, 10 runs each,
+plus a control batch for the full text) - case_32 only:**
+
+| Condition | Result | High rate |
+|---|---|---|
+| v6 (neither A nor B) | 5/5 medium | 0% |
+| v7 pre-reword (neither A nor B) | 3/3 medium | 0% |
+| Variant 1 (A only, B removed) | 8/10 medium, 2/10 high | 20% |
+| Variant 2 (B only, A reverted) | 10/10 medium, 0/10 high | 0% |
+| Full v7 text (A+B together) | 6/12 medium, 6/12 high | ~50% |
+
+Pattern on case_32 alone: no clause present -> 0% high; A alone -> 20%;
+A+B together -> ~50%; B alone -> 0%. This looked like clean, convergent
+evidence that Variant 2 (revert A, keep B) was the fix - it also correctly
+preserved case_09 (request_more_info, the original v7 collision) and
+case_34 (escalate_human, the scenario the example was written for) in
+every run tested.
+
+**Shipped Variant 2 as v8 on this evidence - then it broke down under a
+full regression run.** `PROMPT_VERSION` bumped v7 -> v8, ran the full
+57-case eval once: headline numbers looked identical to v7 (96.5%/93.0%/
+96.5% ALL), so on a single-run comparison this looked like a clean win.
+But per this project's own established discipline (never trust a
+single-run snapshot, always check repeatability), ran 3 full regression
+passes and specifically tracked case_31 and case_25 - two cases that
+weren't misses in the v6/pre-v8 baseline used for the original relabel
+work:
+
+| Case | v7 (3 fresh runs, isolated) | v8 (3 full-eval runs) |
+|---|---|---|
+| case_32 (the fix's target) | - | OK, OK, OK (3/3) |
+| case_08 (the fix's target) | - | OK, OK, OK (3/3) |
+| case_31 (coverage_question, action) | OK, OK, OK (3/3) | MISS, OK, MISS (1/3) |
+| case_25 (new_claim, urgency) | OK, OK, OK (3/3) | MISS, OK, MISS (1/3) |
+
+case_32 and case_08 improved exactly as intended. But case_31 and case_25
+- both perfectly stable under v7 (3/3, confirmed via git-stash isolation
+against the real committed v7 code, not assumed) - became unstable under
+v8 (2/3 miss each). **case_25 destabilizing is the important detail: it's
+in an unrelated category (new_claim, not coverage_question at all).** The
+edit only touched one clause inside the coverage_question definition: a
+new_claim case's urgency judgment moving in response is evidence the
+fix's effect isn't cleanly localized to the text that was actually
+changed - editing one category's definition perturbed a different
+category's behavior, which is not a contained, predictable change.
+
+**Real diagnosis: this was never a single-case bug.** case_08, case_31,
+case_35, and case_32 all sit on the same fuzzy boundary - simple,
+standard-sounding coverage questions where the model has to decide
+between a confident-but-general auto_reply and a more cautious
+request_more_info. Nudging the wording in the surrounding text (the v7
+reword, then the v8 revert) doesn't resolve that boundary, it just moves
+*which* specific cases land on which side of it, sometimes fixing the
+case being targeted while destabilizing others nearby (including, per
+case_25, outside the category being edited). Two isolated clause edits in
+a row (v7's reword, v8's attempted revert) both produced this same shape
+of result: fix the targeted case(s), destabilize different case(s)
+elsewhere. That's a pattern, not a coincidence.
+
+**Decision: v8 not shipped. v7 remains the current, committed prompt
+version.** `classifier.py` reverted to the committed v7 text exactly (no
+diff), `PROMPT_VERSION` reset to v7 in `.env`. The ablation methodology
+and dose-response data above are still accurate and worth keeping on
+record - they correctly identified which clause was associated with
+case_32's flakiness. What they didn't do, because a single-case ablation
+can't, is prove the fix was safe to ship - only a full regression run
+across the whole dataset surfaced that.
+
+**Flagged as a real v9 item, not another isolated clause edit:** write an
+explicit, checkable rule for what makes a coverage question "simple
+enough" for auto_reply, instead of tuning wording around specific
+examples. A concrete checklist, e.g.: policy number present, coverage
+type is a standard/enumerated one (not a novel or excluded scenario), and
+no dispute or exclusion language in the email - auto_reply only if all
+of these hold, request_more_info or escalate_human otherwise. Something
+checkable and testable against case_08/31/32/35 (and any future case that
+lands near this boundary) as a group, rather than another single-clause
+edit that risks repeating tonight's pattern: fix the case being looked
+at, destabilize one or more cases that weren't.
