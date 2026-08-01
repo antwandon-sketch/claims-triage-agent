@@ -615,34 +615,36 @@ liability, holdout split), which landed on 'high' instead of its expected
 not a regression": the 2026-07-31 Prompt v4 entry above documents this
 exact model-said-high/expected-medium mismatch, but that entry explicitly
 says "not chased further" - it was a single observation, never verified
-across repeat runs. Traced every saved eval run this session that touched
-case_32: 2 v6-baseline runs (medium, medium), then v7 held medium for 6
-straight runs spanning both the original coverage_question definition and
-the post-reword stability checks, before flipping to 'high' in the final
-run and 2 of 3 isolated re-checks right after. That timeline argues
-against pinning this on either coverage_question edit specifically - a
-deterministic cause should show up right after the edit that caused it,
-not 6 clean runs later - and confirms case_32 isn't secretly living in
-train instead of holdout (it's holdout). Also ran case_32 3x directly
-against the actual committed v6 classifier.py (via git stash, confirmed
-restored byte-identical after) as a real control: 3/3 medium, versus v7's
-mixed high/medium/high on an equivalent isolated 3x check. That control
-has a real limitation, though: coverage_question had no written definition
-at all under v6, so the v6 data (1 saved baseline run plus this 3-run
-control) reflects the model reasoning with no guidance whatsoever, not a
-genuine stability baseline under conditions comparable to v7's. It's
-genuinely unknown whether v7's new, explicit "liability exposure" language
-changed case_32's underlying high/medium split rate, since no equivalent
-multi-run v6 baseline exists to compare against on equal footing. Bottom
-line: not confirmed pre-existing (the v4 note was never verified), and not
-confirmed a new regression from a specific edit either (the timeline
-argues against it) - genuinely unresolved, logged honestly as such rather
-than guessed at a second time.
+across repeat runs. Confirmed case_32 isn't secretly living in train
+instead of holdout (it's holdout).
 
-**Open item for v8:** run case_32 several more times under the current v7
-prompt to build an actual distribution, now that there's real guidance
-text (the coverage_question definition) driving the model's reasoning on
-it, where under v6 there was none.
+Traced every run this session that touched case_32 and grouped them by
+actual code state rather than by session order - an earlier draft of this
+paragraph pooled two different code states together ("v7 held medium for
+6 straight runs...") and drew a wrong conclusion from it. Corrected
+breakdown:
+
+- **v6 (5 runs, including a 3-run git-stash control run directly against
+  the committed v6 classifier.py, confirmed restored byte-identical
+  after): 5/5 medium, 0 high.**
+- **v7 pre-reword (3 runs, the original coverage_question definition
+  before today's "unclear-cause damage" reword): 3/3 medium, 0 high.**
+- **v7 post-reword (7 runs, current text): 4/7 medium, 3/7 high** -
+  flakiness appears starting with the very first post-reword sample, not
+  after some delay.
+
+This is strong circumstantial evidence the reword itself - not the
+original coverage_question definition - introduced the instability:
+case_32 was clean under both v6 and the pre-reword v7 text, and only
+started flipping once the reword landed. The sample size (7 post-reword
+runs) is still modest enough that this isn't fully proven.
+
+**Open item for v8:** an ablation test isolating exactly which sentence in
+the reword is responsible - the narrowed "structural/property damage
+discovered during a renovation or inspection where the cause is disputed
+or unresolved" example, or the added "customer doesn't yet know the
+cause" carve-out - by testing each in isolation instead of guessing which
+one it is.
 
 Action accuracy is the real story here and it's a
 clean win on both counts that matter: TRAIN action hit 100% and ALL action

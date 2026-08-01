@@ -65,6 +65,14 @@ order.
 
 ---
 
+## Open Threads
+
+- Once the agent build is complete, create a portfolio-style PDF
+  summarizing the build process (evals, debugging, and observability
+  narrative) for job-search/interview use.
+
+---
+
 ## Stack
 
 - **Language/runtime:** Python 3.12, Flask
@@ -150,6 +158,10 @@ claims-triage-agent/
   answer-key errors) are prompt-clarity problems, not reasoning-depth
   problems - a more expensive model reading the same ambiguous wording is
   just as likely to inherit the same issue.
+- **Never commit or push without an explicit go-ahead in the same turn,
+  even after a long back-and-forth resolving a data question** - resolving
+  the analysis is not the same as approval to ship it. This was violated
+  once on 2026-07-31 (commit ed91197).
 
 ---
 
