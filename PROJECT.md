@@ -43,11 +43,11 @@ this is a portfolio piece first, a pitch second.
 | Categories | 9: new_claim, claim_status, coverage_question, policy_change, billing_issue, sales_lead, complaint, document_request, other (expanded from an original 5 after v3 - see progress-log for why) |
 | Golden dataset | 57 hand-labeled cases (`eval/golden_dataset.json`), split 26 train / 31 holdout |
 | Latest full eval (v11, staged) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). |
-| Safety-critical + prompt-injection stress test | `eval/run_stress_tests.py`, 16 cases (10 safety-critical + 6 prompt-injection). Safety-critical: 10/10 clean under v7/v10/v11, zero false negatives. Prompt-injection: 2/6 clean under v7 and v10 (confirmed identical via stash A/B, pre-existing, not caused by either version); 3/6 clean under v11 - a slight improvement, most likely ordinary call-to-call variance on one borderline case rather than a v11 effect, since v11's only change is scoped to coverage_question. |
+| Stress test suite | `eval/run_stress_tests.py`, 22 cases across 3 categories (10 safety-critical + 6 prompt-injection + 6 urgency-manipulation, the last added 2026-08-01). Safety-critical: 10/10 clean under v7/v10/v11, zero false negatives. Prompt-injection: 2/6 clean under v7 and v10 (confirmed identical via stash A/B, pre-existing), 3/6 clean under v11 (likely ordinary variance, not a v11 effect). Urgency-manipulation (v11, first real run): 4/6 clean - urg_03 and urg_06 both got urgency inflated (low→medium, medium→high) by manufactured pressure/deadline language rather than the underlying content; category and action stayed correct in both. The inverse trap (genuine urgency in a calm tone, and a genuine grievance in an angry tone) both passed correctly - the model isn't simply pattern-matching on tone in either direction, but does let stated deadlines pull urgency up past what the content alone warrants. Full case-by-case detail in `eval/stress_tests.json` and the timestamped run in `eval_results/`. |
 | `safety_instruction` field | New classifier output field - populated only for active physical danger (gas leak, downed power line, CO alarm, active fire, someone trapped/injured), persisted to `agent_decisions.safety_instruction` |
 | `eval_runs` table | Tracks accuracy history across prompt versions in Postgres |
 | Database | Neon Postgres - separate database from ai-consulting-lab |
-| Tests | 28 passing (`pytest -v`) |
+| Tests | 33 passing (`pytest -v`) |
 
 **What's not built yet:** the system decides and logs, it doesn't act.
 No reply is actually sent for any action (`auto_reply`, `escalate_human`,
@@ -58,10 +58,10 @@ project's SMS-confirmation gap - get the classification core solid and
 measured first.
 
 **Stress-test categories not yet built:** multi-issue emails (two asks in
-one email), exaggerated/manipulative urgency language, prompt injection
-inside the email body, garbled/low-signal input. Safety-critical was built
-first (highest real-world consequence); these four are next, in no fixed
-order.
+one email), garbled/low-signal input. Safety-critical, prompt injection,
+and (as of 2026-08-01) exaggerated/manipulative urgency language are all
+built now - see the Current State table above and progress-log.md for
+the urgency-manipulation category's real results.
 
 **Resolved this session:** v10's case_56 (billing_issue) regression was
 root-caused across five diagnostic rounds - schema-size isolation,
