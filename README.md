@@ -29,30 +29,69 @@ table so accuracy can be tracked across prompt versions over time. The
 scoring logic itself is unit tested (`tests/test_eval_scoring.py`) with
 fixed inputs, independent of how the classifier is actually performing.
 
-**Since Phase 3 (prompt v3-v7):**
+**Since Phase 3 (prompt v3-v11):**
 - Prompt versions v3 through v6 shipped: category schema expanded 5 -> 9,
   urgency-bleed bug fixed in the `policy_change` rule, `safety_instruction`
   field + safety-critical stress harness added, and a surgical urgency fix
   in v6, then v7 added written definitions for the 3 previously-undefined
-  categories plus a general auto_reply coverage-determination guardrail
-  (current version).
+  categories plus a general auto_reply coverage-determination guardrail.
 - Golden dataset grown from 20 to 57 hand-labeled cases, split 26 train /
   31 holdout.
-- Latest full eval (v7): ~96.5% category, ~93.0% urgency, ~96.5% action
-  accuracy on the full set.
-- Safety-critical stress harness (separate from the accuracy eval): 10/10,
-  zero false negatives.
-- Prompt-injection stress harness added (6 cases): zero actual injection
-  compliance across all 6 cases - every injected directive was resisted,
-  one explicitly named and rejected by the model. 12/16 raw pass rate
-  logged as an honest baseline; the 4 "misses" trace to ground-truth label
-  ambiguity under investigation, not model failures (see progress-log.md
-  for full detail).
-- Fixed in v7: new_claim, claim_status, and coverage_question now have
-  written definitions, plus a general guardrail preventing auto_reply
-  from making coverage/liability determinations. Open item for v8:
-  case_32 urgency flakiness introduced by the v7 reword, under
-  investigation (see progress-log.md).
+- **v8 and v9 (reverted, never shipped):** two attempts to fix a specific
+  `coverage_question` urgency/action instability by rewording the
+  category's prompt text in prose. Each fix traced cleanly by hand and
+  passed initial spot checks, but a full 3x regression run showed the
+  same failure shape both times: it fixed the targeted case and
+  destabilized a different one nearby (v8: case_31/case_25; v9:
+  case_04/case_05/case_10). Neither shipped - see progress-log.md's v8
+  and v9 entries.
+- **v10 (built, reverted before shipping):** rather than a third prose
+  rewrite, `coverage_question`'s `auto_reply` / `request_more_info` /
+  `escalate_human` boundary was redesigned as extract-then-decide - the
+  model only extracts 6 independently-defined boolean facts about the
+  email (does it reference a specific incident, is there a liability
+  signal, etc.), and a plain deterministic Python function computes the
+  action from those booleans, no LLM judgment call involved. This fully
+  solved the category's own instability (0 action misses across 3
+  full-suite runs). But matched git-stash A/B testing surfaced a real,
+  reproducible regression in an unrelated category - one `billing_issue`
+  case dropped from 100% reliable under v7 to roughly 60-80% reliable
+  under v10, depending on sample. Not shipped pending root cause.
+- **v11 (current, shipped):** five rounds of controlled testing -
+  isolating the schema change, isolating the prompt-text change, a full
+  4x2x10 factorial across both variables, a time-drift-controlled
+  interleaved run, and a targeted isolation of one specific sentence -
+  traced the v10 regression to a self-referential "three prior attempts
+  each fixed one case while breaking another" narrative the v10 prompt
+  text used to explain itself to the model. That sentence, not the
+  schema and not the actual extraction/decision logic, was destabilizing
+  the unrelated case. Removing only that sentence (keeping every
+  operational instruction, field description, and worked example
+  unchanged) fixed it: the previously-unreliable case is back to 0
+  misses across 3 full-suite runs, matching v7. Full investigation
+  across all five diagnostic rounds is in progress-log.md.
+- Latest full eval (v11, 3 runs): category 96.5-98.2%, urgency
+  89.5-91.2%, action 96.5-98.2% (v7 baseline for comparison: 96.5%
+  category, 93.0% urgency, 96.5% action). Category and action match or
+  exceed the baseline in every run; the urgency dip is within the
+  case-level variance already documented for a couple of known cases,
+  not a new issue.
+- One known, low-severity open item: one `document_request` case
+  (case_54) intermittently gets urgency wrong (flagged medium instead of
+  low) under v11 - confirmed via stash A/B that this is new relative to
+  v7. Category and the actual routing decision (`escalate_human`) are
+  correct every time, so the email still reaches a human either way;
+  this only affects queue priority, not the outcome. Not yet root-caused
+  - flagged as a follow-up, not a blocker.
+- Safety-critical stress harness (separate from the accuracy eval):
+  10/10, zero false negatives - holds across v7, v10, and v11.
+- Prompt-injection stress harness (6 cases): 3/6 clean under v11 (up
+  from a 2/6 baseline confirmed identical under both v7 and v10 via
+  stash A/B - a pre-existing gap, not caused by any prompt version
+  tested so far). No false negatives on the safety-critical set; the
+  injection failures are the model following instructions embedded in
+  email bodies for 2-3 of the 6 adversarial cases. Not yet root-caused -
+  a real, separately-tracked open item (see progress-log.md).
 
 **Coming next:**
 - Phase 4 - a small dashboard over `agent_decisions` and `eval_runs` history
