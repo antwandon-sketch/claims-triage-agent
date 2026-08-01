@@ -785,3 +785,79 @@ checkable and testable against case_08/31/32/35 (and any future case that
 lands near this boundary) as a group, rather than another single-clause
 edit that risks repeating tonight's pattern: fix the case being looked
 at, destabilize one or more cases that weren't.
+
+## 2026-07-31 - v9 coverage_question rewrite: manual trace clean, real regression not - not shipped
+
+Second attempted coverage_question fix tonight, same overall shape as the
+v8 investigation: designed carefully, traced by hand against all 9
+coverage_question golden cases before writing any code, passed that
+trace cleanly, then failed a full 3x regression run and was reverted.
+
+**What v9 changed.** Replaced the "standard, commonly-enumerated coverage
+type" example list (which v8's investigation implicated in case_32's
+flakiness) with an explicit, checkable boundary test: auto_reply only if
+a policy number is present AND the question is a generic, informational
+lookup about whether a policy feature/add-on exists (not a case-specific
+yes/no question about a particular loss/item) AND nothing suggests
+liability, underwriting, or a disputed cause. Re-added the v7/v8 carve-out
+sentence verbatim ("a customer simply not yet knowing what caused
+something they just noticed... is not, by itself, an underwriting-
+adjacent gap").
+
+**Manual trace, done before any code changes.** Traced all 9
+coverage_question golden cases by hand against the proposed text
+(case_08, 09, 10, 20, 31, 32, 33, 34, 35). First draft conflicted on
+case_08 and case_31 (the checklist's own worked examples, "rental car
+reimbursement" and "glass/windshield repair," contradicted their
+request_more_info labels) and left case_09/case_34 under-distinguished.
+Revised: dropped the enumerated-example list in favor of the generic-vs-
+case-specific test, re-added the carve-out. Re-traced - all 9 cases now
+matched their golden labels on paper, including the previously-conflicting
+case_08/case_31 and the case_09/case_34 split.
+
+**Real 3x regression run told a different story.**
+
+- **case_08: stably wrong, 3/3 runs.** Predicted `auto_reply` every time
+  (expected `request_more_info`), with near-identical rationale each run:
+  "a generic, informational question about whether a policy feature
+  (rental car reimbursement) exists, not tied to a specific active claim
+  or incident." The model does not read "does my policy cover a rental
+  car while my car is in the shop" as case-specific the way the manual
+  trace assumed, even though it's anchored to an active, personal
+  situation ("my car is in the shop") - it weighs the "does this feature
+  exist" framing more heavily than that anchor. Not flaky - consistently
+  wrong, all 3 runs.
+- **case_10: a new boundary case the manual trace never considered,
+  flaky 2/3 runs.** Not one of the 9 cases re-examined for the generic/
+  case-specific split originally (it was checked only against the
+  missing-policy-number path). Its actual wording - "not positive if it
+  was stolen or lost" - started reading as a disputed/unresolved cause
+  (the same trigger phrase that correctly routes case_34 to
+  escalate_human) rather than as ordinary missing info covered by the
+  carve-out. The carve-out's "just noticed, hasn't investigated" framing
+  doesn't obviously extend to "don't know if it was stolen or misplaced"
+  - a real gap the hand trace missed because it wasn't looking for it.
+- **case_04 and case_05: new flaky misses (2/3 each), unrelated
+  categories.** new_claim and claim_status respectively - the same
+  cross-category destabilization shape as case_25 under v8. An edit
+  scoped entirely to the coverage_question definition correlating with
+  new misses in categories that definition doesn't touch, for the second
+  time tonight.
+- **ALL action accuracy down in all 3 runs** (94.7%, 93.0%, 94.7% vs
+  v7's 96.5%), and holding across repeats, not noise - concentrated in
+  TRAIN (92.3%, 88.5%, 92.3%). HOLDOUT action stayed roughly flat.
+
+**Decision: v9 not shipped. v7 remains current.** classifier.py reverted
+to the committed v7 text exactly (no diff), PROMPT_VERSION reset to v7 in
+`.env`. This is the second time tonight a targeted, carefully-reasoned
+prose fix has cleared manual tracing and initial single-run testing, then
+failed once checked against a full regression - v8 destabilized case_31/
+case_25 outside its target, v9 destabilized case_04/case_05/case_10
+outside and inside its target. Two independent wording rewrites (plus
+v7's original reword before either), three different texts, the same
+failure shape both times: fix the case being looked at, destabilize
+something nearby that wasn't being looked at. That's a pattern now, not
+a coincidence - see PROJECT.md's Conventions section for what this means
+for how coverage_question gets fixed next, and the "Immediate next
+steps" section for the v10 plan (an architectural fix, not another
+wording pass).

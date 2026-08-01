@@ -39,7 +39,7 @@ this is a portfolio piece first, a pitch second.
 | Thing | Status |
 |---|---|
 | Ingestion endpoint | `POST /inbound-email` - Flask, live-tested end to end against Neon + real Claude API |
-| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v6** |
+| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v7** (confirmed current - v8 and v9 were both built and reverted the night of 2026-07-31, see progress-log.md) |
 | Categories | 9: new_claim, claim_status, coverage_question, policy_change, billing_issue, sales_lead, complaint, document_request, other (expanded from an original 5 after v3 - see progress-log for why) |
 | Golden dataset | 57 hand-labeled cases (`eval/golden_dataset.json`), split 26 train / 31 holdout |
 | Latest full eval | Category ~96.5%, urgency ~94.7%, action ~93.0% on ALL (see progress-log.md's most recent entry for the exact current numbers - they get re-measured every prompt version) |
@@ -63,10 +63,26 @@ inside the email body, garbled/low-signal input. Safety-critical was built
 first (highest real-world consequence); these four are next, in no fixed
 order.
 
+**Known open item:** coverage_question's auto_reply/request_more_info/
+escalate_human boundary needs a structural redesign, not another wording
+pass - three independent prompt-text attempts (v7's reword, v8's revert,
+v9's rewrite) have each fixed their targeted case(s) while destabilizing
+others nearby, inside and outside the category. See progress-log.md's v8
+and v9 entries.
+
 ---
 
 ## Open Threads
 
+- **Immediate next step:** design (not yet implement) an extract-then-
+  decide refactor for coverage_question - new tool-schema fields
+  (`references_specific_incident`, `has_policy_or_claim_number`,
+  `has_liability_or_dispute_signal`, all booleans) plus a deterministic
+  Python function computing `suggested_action` from them, instead of
+  asking the LLM to reason the whole boundary in prose. Manually trace
+  the design against all coverage_question golden cases - including
+  case_10, the edge case v9's investigation discovered - before touching
+  classifier.py.
 - Once the agent build is complete, create a portfolio-style PDF
   summarizing the build process (evals, debugging, and observability
   narrative) for job-search/interview use.
@@ -162,6 +178,19 @@ claims-triage-agent/
   even after a long back-and-forth resolving a data question** - resolving
   the analysis is not the same as approval to ship it. This was violated
   once on 2026-07-31 (commit ed91197).
+- **A coverage_question prompt fix that traces cleanly by hand and passes
+  on its targeted cases can still fail under full regression** - confirmed
+  twice (v8, v9). Never trust a fix until it's cleared a full 3x
+  regression run against cases outside the ones it was designed for.
+- **When a classification boundary keeps reappearing after multiple
+  independent wording rewrites** (v7's reword, v8's revert, v9's rewrite -
+  three different texts, same failure shape: fix the targeted case,
+  destabilize others nearby), the fix needs to be architectural - separate
+  the LLM's fact-extraction (a narrow, well-scoped judgment) from the
+  final decision logic (deterministic code), rather than another
+  prompt-text iteration. Research established prompt-engineering/LLM-
+  reliability patterns for this class of problem before proposing another
+  manual wording edit.
 
 ---
 
