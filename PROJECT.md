@@ -27,10 +27,7 @@ repo, deliberately kept separate from `ai-consulting-lab` rather than
 nested in its `agents/` folder - a hiring manager should be able to open
 this repo and immediately understand it's a distinct piece of work).
 
-**Possible future use:** A friend's manager at a Farmers Insurance
-affiliate in Kyle, TX was pitched informally ~2 months ago and may be
-interested. Deliberately not reaching out until the build is solid -
-this is a portfolio piece first, a pitch second.
+**Possible future use:** Exploring a potential pilot with a small regional insurance agency. Deliberately not reaching out until the build is solid - this is a portfolio piece first, a pitch second.
 
 ---
 
