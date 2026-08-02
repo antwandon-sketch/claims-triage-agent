@@ -200,5 +200,83 @@
     "expected_suggested_action": "escalate_human",
     "expected_safety_instruction": false,
     "notes": "Intense, time-pressured tone, but grounded in a real, stated fact (an actual 48-hour coverage-gap deadline), not a manufactured one - the opposite failure mode from urg_01-03: real time pressure dressed in urgent-sounding language should still register as genuinely time-sensitive. Expected medium (time-sensitive but not an emergency - no property or safety risk) rather than either overreacting to 'ASAP'/'today' and marking high, or discounting it to low just because sales_lead requests are usually routine."
+  },
+  {
+    "id": "mi_01",
+    "test_category": "multi_issue",
+    "subject": "Storm damage to the roof + quick question",
+    "body": "Storm came through last night and there's a big chunk of shingles missing off the roof, definitely need to get this looked at. Also - does anyone know if it's supposed to rain again this weekend? Just trying to figure out if I need to throw a tarp up there in the meantime.",
+    "expected_category": "new_claim",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "expected_safety_instruction": false,
+    "has_legitimate_secondary_issue": false,
+    "secondary_issue_notes": "The weather question is rhetorical/small-talk, not a real second ask - the agency has no way to answer a forecast question and the customer isn't actually requesting anything from them about it. Should not shift category, urgency, or action away from the plain single-issue read (a first-time storm-damage report, not yet actively leaking, so medium rather than high - always escalate_human as new_claim).",
+    "notes": "Trap 1 of 3: a fake/trivial second ask tacked onto a real single issue with an explicit 'Also'. Tests whether the classifier gets confused by the second sentence (e.g. drifting toward 'other' or splitting attention) rather than cleanly reading this as one new_claim."
+  },
+  {
+    "id": "mi_02",
+    "test_category": "multi_issue",
+    "subject": "Overcharged again this month",
+    "body": "I was charged $340 instead of my usual $220 this month on my homeowners policy HO-22187, can someone look into why? Also, thanks for updating my mailing address last week - I checked and that looks correct now, no issues there.",
+    "expected_category": "billing_issue",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "expected_safety_instruction": false,
+    "has_legitimate_secondary_issue": false,
+    "secondary_issue_notes": "The second sentence is a closed-out confirmation/thank-you about a previously-completed change, not a new actionable request - there's nothing left to do about the address. Should not register as a real second issue or a policy_change action.",
+    "notes": "Trap 2 of 3: a second sentence that reads like it could be a second ask but is actually already resolved. Tests whether 'thanks for X' gets misread as a live request rather than correctly ignored as closed."
+  },
+  {
+    "id": "mi_03",
+    "test_category": "multi_issue",
+    "subject": "Need a new ID card",
+    "body": "Can you send me a new insurance ID card for my auto policy AU-40218? I misplaced the one in my glovebox. Also, hope you all are doing well over there, it's been a while since I've had to reach out!",
+    "expected_category": "document_request",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "expected_safety_instruction": false,
+    "has_legitimate_secondary_issue": false,
+    "secondary_issue_notes": "Pure social pleasantry, not a request of any kind - nothing to capture or flag.",
+    "notes": "Trap 3 of 3: purely social filler after the real ask, the mildest version of this trap. Tests that friendly small talk doesn't get treated as needing any response or classification of its own, and doesn't push a routine resend toward escalate_human."
+  },
+  {
+    "id": "mi_04",
+    "test_category": "multi_issue",
+    "subject": "Question about my policy",
+    "body": "Hi, I noticed my premium went up about $60 a month starting this billing cycle and I'm not sure why since nothing on my end has changed, and I've actually been wondering for a while whether my policy would cover water damage if my washing machine hose ever burst since I've heard that's a common thing with older units like mine - let me know when you get a chance, thanks.",
+    "expected_category": "billing_issue",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "expected_safety_instruction": false,
+    "has_legitimate_secondary_issue": true,
+    "secondary_issue_notes": "A genuine coverage_question - hypothetical washing machine hose burst, no incident has happened - is folded into the same sentence as the billing complaint with no 'also'/list separation. Primary is hand-labeled as billing_issue since it's the concrete, stated-first, more actionable of the two (an unexplained charge increase reads as 'a problem to fix', not a simple factual question) while the coverage question is exploratory ('wondering... if it ever burst'). This is a genuinely debatable primary-issue call, not a clean answer - that ambiguity is part of what this case is testing. The coverage question itself would need its own full extraction (has_policy_or_claim_number, asks_feature_existence_only, etc.) to score under score_coverage_question() if it were the only issue in the email; bundled here, the current single-category schema has no way to also surface it.",
+    "notes": "Inverse trap 1 of 3: one flowing paragraph, no explicit list or 'also', bundling two genuinely separate substantive asks (a billing dispute and a coverage question) that would normally need different handling. Tests whether the classifier catches that there even are two asks, or locks onto whichever one it reads first and drops the other silently."
+  },
+  {
+    "id": "mi_05",
+    "test_category": "multi_issue",
+    "subject": "Adding my daughter to the policy",
+    "body": "My daughter just got her license so I need to get her added as a driver on my auto policy AU-71005, and before she starts driving to school next week I need something I can hand her showing she's actually covered.",
+    "expected_category": "policy_change",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "expected_safety_instruction": false,
+    "has_legitimate_secondary_issue": true,
+    "secondary_issue_notes": "A real document_request - proof of insurance/an ID card for the new driver - is bundled into the same request as the driver addition itself. It's a downstream need directly dependent on the first request being processed (you can't issue proof of coverage for a driver who isn't added yet), but it's still a distinct action a real system needs to sequence and eventually deliver on, not something the policy_change alone accomplishes. The single-category schema has no way to represent 'and then also send a document once this is done' - it would be silently dropped.",
+    "notes": "Inverse trap 2 of 3: one sentence, no 'also', bundling an underwriting-risk policy_change (add a driver, must escalate per the prompt) with a genuinely time-sensitive document need (school starts next week - a real, stated deadline, which is why urgency is medium rather than the low that policy_change additions default to when nothing time-sensitive is described)."
+  },
+  {
+    "id": "mi_06",
+    "test_category": "multi_issue",
+    "subject": "Following up",
+    "body": "I called in on Tuesday about claim CL-56812 and the rep I spoke with was pretty rude and dismissive about the whole thing, didn't really answer my questions and rushed me off the phone, and I still don't actually know where things stand with the claim itself or when I might hear back.",
+    "expected_category": "complaint",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "expected_safety_instruction": false,
+    "has_legitimate_secondary_issue": true,
+    "secondary_issue_notes": "A real claim_status check (what's the actual status of CL-56812) is bundled into the same sentence as a service complaint (a rude, dismissive rep). These are explicitly called out as separate categories in the system prompt's own definitions, and the customer genuinely wants both addressed - not just an apology, but also an actual status update. Primary is hand-labeled as complaint since the service grievance is the dominant, first-stated concern and both categories independently route to escalate_human here, but the status-check need would still be silently dropped by a single-category output.",
+    "notes": "Inverse trap 3 of 3: one run-on sentence, no 'also' or list, bundling a complaint about service quality with a genuine claim_status question. Both plausible primary categories happen to agree on escalate_human here, so this case mainly tests category correctness and the secondary-issue-detection question, not action correctness."
   }
 ]

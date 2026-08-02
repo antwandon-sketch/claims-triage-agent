@@ -43,7 +43,7 @@ this is a portfolio piece first, a pitch second.
 | Categories | 9: new_claim, claim_status, coverage_question, policy_change, billing_issue, sales_lead, complaint, document_request, other (expanded from an original 5 after v3 - see progress-log for why) |
 | Golden dataset | 57 hand-labeled cases (`eval/golden_dataset.json`), split 26 train / 31 holdout |
 | Latest full eval (v11, staged) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). |
-| Stress test suite | `eval/run_stress_tests.py`, 22 cases across 3 categories (10 safety-critical + 6 prompt-injection + 6 urgency-manipulation, the last added 2026-08-01). Safety-critical: 10/10 clean under v7/v10/v11, zero false negatives. Prompt-injection: 2/6 clean under v7 and v10 (confirmed identical via stash A/B, pre-existing), 3/6 clean under v11 (likely ordinary variance, not a v11 effect). Urgency-manipulation (v11, first real run): 4/6 clean - urg_03 and urg_06 both got urgency inflated (low→medium, medium→high) by manufactured pressure/deadline language rather than the underlying content; category and action stayed correct in both. The inverse trap (genuine urgency in a calm tone, and a genuine grievance in an angry tone) both passed correctly - the model isn't simply pattern-matching on tone in either direction, but does let stated deadlines pull urgency up past what the content alone warrants. Full case-by-case detail in `eval/stress_tests.json` and the timestamped run in `eval_results/`. |
+| Stress test suite | `eval/run_stress_tests.py`, 28 cases across 4 categories (10 safety-critical + 6 prompt-injection + 6 urgency-manipulation + 6 multi-issue, the last added 2026-08-01). Safety-critical: 10/10 clean under v7/v10/v11, zero false negatives. Prompt-injection: 2/6 clean under v7 and v10 (confirmed identical via stash A/B, pre-existing), 3/6 clean under v11. Urgency-manipulation: 4/6 clean - a stated deadline, real or invented, pulls urgency up past what the content warrants in 2 of 6 cases; category/action stay correct. Multi-issue (v11, first real run): 5/6 clean on the primary-issue read - the one miss (mi_01) turned out to be an urgency judgment call unrelated to the trap it was designed to test, not evidence the fake second ask caused confusion. More importantly: **3 of 6 cases (mi_04, mi_05, mi_06) surfaced a real architectural gap, not a scoring miss** - each bundles a second, genuinely separate issue (a coverage question, a document need, a status check) into one flowing paragraph, and even though the primary-issue classification was correct in all 3, `classify_email`'s schema has exactly one category/urgency/action per email, so the second issue is silently dropped every time regardless of what the model does right. See the Open Threads section below. Full case-by-case detail in `eval/stress_tests.json` and the timestamped run in `eval_results/`. |
 | `safety_instruction` field | New classifier output field - populated only for active physical danger (gas leak, downed power line, CO alarm, active fire, someone trapped/injured), persisted to `agent_decisions.safety_instruction` |
 | `eval_runs` table | Tracks accuracy history across prompt versions in Postgres |
 | Database | Neon Postgres - separate database from ai-consulting-lab |
@@ -57,11 +57,10 @@ deliberate, sequenced work for a later phase, the same shape as the HVAC
 project's SMS-confirmation gap - get the classification core solid and
 measured first.
 
-**Stress-test categories not yet built:** multi-issue emails (two asks in
-one email), garbled/low-signal input. Safety-critical, prompt injection,
-and (as of 2026-08-01) exaggerated/manipulative urgency language are all
-built now - see the Current State table above and progress-log.md for
-the urgency-manipulation category's real results.
+**Stress-test categories not yet built:** garbled/low-signal input only.
+Safety-critical, prompt injection, exaggerated/manipulative urgency
+language, and (as of 2026-08-01) multi-issue emails are all built now -
+see the Current State table above for real results on each.
 
 **Resolved this session:** v10's case_56 (billing_issue) regression was
 root-caused across five diagnostic rounds - schema-size isolation,
@@ -102,19 +101,32 @@ session's rounds.
 
 ## Open Threads
 
-- **v11 is built, validated, and staged in the working tree - awaiting
-  an explicit go-ahead to commit.** Nothing in this session has been
-  committed or pushed; that decision belongs to the project owner, not
-  to future sessions picking this up automatically.
-- If shipped, root-cause case_54's new urgency miss as a follow-up -
-  low priority given the action/category are unaffected, but worth
-  understanding given this project's history of coverage_question-
-  adjacent edits leaking into unrelated categories (case_25/v8,
-  case_04+case_05/v9, case_56/v10, possibly case_54/v11 - pattern not
-  yet confirmed for this one).
+- **v11 is committed and pushed - confirmed shipped.** (This line was
+  stale as of an earlier draft of this doc, which still described it as
+  staged/awaiting go-ahead; corrected 2026-08-01.)
+- Root-cause case_54's urgency miss as a follow-up - low priority given
+  the action/category are unaffected, but worth understanding given
+  this project's history of coverage_question-adjacent edits leaking
+  into unrelated categories (case_25/v8, case_04+case_05/v9, case_56/v10,
+  possibly case_54/v11 - pattern not yet confirmed for this one).
 - Separately, investigate the prompt-injection stress-test gap (2-3/6
   clean across v7/v10/v11) - not caused by any of this session's work,
   but a real, pre-existing weakness worth its own pass.
+- **New: multi-issue emails expose a real architectural gap, not a
+  prompt-tunable miss.** `classify_email`'s schema outputs exactly one
+  category/urgency/action per email. 3 of the 6 multi_issue stress cases
+  (mi_04, mi_05, mi_06) bundle two genuinely separate, substantive asks
+  into a single paragraph with no "also"/list marker - a billing
+  question folded into a coverage question, a policy_change folded into
+  a document need, a service complaint folded into a claim_status check.
+  In all 3, the model correctly classified the primary issue - but the
+  secondary issue has nowhere to go in the current output schema and is
+  silently dropped every time, independent of whether the primary read
+  is right. This needs a design decision (e.g. an `additional_issues`
+  list in the schema, or a boolean flag plus a follow-up pass) before
+  the agent could be trusted with genuinely multi-part customer email in
+  production - not something a prompt edit alone can fix. Not addressed
+  this round (out of scope - this task was stress-test coverage only).
 - Once the agent build is complete, create a portfolio-style PDF
   summarizing the build process (evals, debugging, and observability
   narrative) for job-search/interview use.
