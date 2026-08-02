@@ -5,7 +5,7 @@ to get full context immediately. For the detailed, chronological build
 history (useful for understanding *why* a decision was made, not just
 what the current state is), see `progress-log.md`.
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 ---
 
@@ -39,7 +39,7 @@ this is a portfolio piece first, a pitch second.
 | Thing | Status |
 |---|---|
 | Ingestion endpoint | `POST /inbound-email` - Flask, live-tested end to end against Neon + real Claude API |
-| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v7 still the confirmed-shipped version; v11 built, fully validated, and staged for review as of 2026-08-01 - NOT committed yet, uncommitted in the working tree pending explicit go-ahead** (v8/v9 built and reverted 2026-07-31; v10's extract-then-decide architecture solved coverage_question but introduced a root-caused billing_issue regression, not shipped; v11 = v10 unchanged except the coverage_question bullet's self-referential narrative text removed, which fixed the regression - see progress-log.md's v10 and v11 entries) |
+| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v11, confirmed shipped (committed and pushed 2026-08-01)** (v8/v9 built and reverted 2026-07-31; v10's extract-then-decide architecture solved coverage_question but introduced a root-caused billing_issue regression, not shipped; v11 = v10 unchanged except the coverage_question bullet's self-referential narrative text removed, which fixed the regression - see progress-log.md's v10 and v11 entries) |
 | Categories | 9: new_claim, claim_status, coverage_question, policy_change, billing_issue, sales_lead, complaint, document_request, other (expanded from an original 5 after v3 - see progress-log for why) |
 | Golden dataset | 57 hand-labeled cases (`eval/golden_dataset.json`), split 26 train / 31 holdout |
 | Latest full eval (v11, staged) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). |
@@ -157,7 +157,7 @@ claims-triage-agent/
 ├── app.py                     ← Flask entry point
 ├── config.py                  ← env vars + shared Anthropic client
 ├── db.py                      ← Neon persistence (emails, decisions, eval_runs)
-├── classifier.py               ← SYSTEM_PROMPT + tool schema (PROMPT_VERSION v6)
+├── classifier.py               ← SYSTEM_PROMPT + tool schema (PROMPT_VERSION v11)
 ├── routes/
 │   └── ingestion.py            ← POST /inbound-email
 ├── eval/
