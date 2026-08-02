@@ -127,6 +127,11 @@ session's rounds.
   the agent could be trusted with genuinely multi-part customer email in
   production - not something a prompt edit alone can fix. Not addressed
   this round (out of scope - this task was stress-test coverage only).
+  **Deliberately deferred, Case W/X style.** If revisited: Option A was
+  selected (`additional_issues` as a simple list of
+  `{category, short_description}`, forces `escalate_human` if non-empty,
+  no per-issue urgency/action). Revisit trigger: same as Case W/X -
+  before any real client conversation, not before.
 - Once the agent build is complete, create a portfolio-style PDF
   summarizing the build process (evals, debugging, and observability
   narrative) for job-search/interview use.
