@@ -17,6 +17,12 @@ an agent_decisions row - a customer_reply or an internal_handoff_note (see
 draft_generator.py's module docstring). This table only stores text for a
 human to review; there is still no send capability anywhere in this
 codebase.
+
+drafts.status (added alongside routes/review.py, the human-approval gate):
+pending_approval -> approved | rejected. Nothing in this codebase moves a
+draft to a hypothetical future 'sent' status - that requires actual send
+capability, which doesn't exist yet, so it's deliberately not part of the
+status set below until it does.
 """
 import json
 import psycopg2
@@ -103,8 +109,38 @@ def init_db():
                     prompt_version TEXT NOT NULL,
                     model_name TEXT NOT NULL,
                     latency_ms INTEGER,
-                    raw_model_response JSONB
+                    raw_model_response JSONB,
+                    status TEXT NOT NULL DEFAULT 'pending_approval'
+                        CHECK (status IN ('pending_approval', 'approved', 'rejected')),
+                    reviewed_at TIMESTAMP,
+                    reviewed_by TEXT,
+                    rejection_reason TEXT
                 );
+                """
+            )
+            # As with safety_instruction above: CREATE TABLE IF NOT EXISTS is
+            # a no-op against a drafts table that already exists from before
+            # the approval gate was added, so these ALTERs are what actually
+            # backfill the new columns on a live database. Safe to re-run.
+            cur.execute(
+                "ALTER TABLE drafts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending_approval';"
+            )
+            cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;")
+            cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS reviewed_by TEXT;")
+            cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS rejection_reason TEXT;")
+            # ADD COLUMN IF NOT EXISTS has no CHECK-constraint equivalent, so
+            # the constraint from the CREATE TABLE above wouldn't exist on a
+            # table that predates this change. This adds it separately,
+            # tolerating "already exists" so re-running init_db() stays safe.
+            cur.execute(
+                """
+                DO $$
+                BEGIN
+                    ALTER TABLE drafts ADD CONSTRAINT drafts_status_check
+                        CHECK (status IN ('pending_approval', 'approved', 'rejected'));
+                EXCEPTION
+                    WHEN duplicate_object THEN NULL;
+                END $$;
                 """
             )
         conn.commit()
@@ -230,24 +266,84 @@ def save_draft(agent_decision_id, draft_type, draft_text, prompt_version, model_
     return draft_id
 
 
-def list_drafts(limit=50):
+def list_drafts(limit=50, status=None):
     """Most recent drafts first, joined back to the decision and original
-    email so a reviewer has full context without a second lookup."""
+    email so a reviewer has full context without a second lookup. Pass
+    status (e.g. 'pending_approval') to filter to just that status;
+    omit it to list drafts regardless of status."""
+    query = """
+        SELECT dr.*, d.category, d.urgency, d.suggested_action, d.summary,
+               e.sender_email, e.subject, e.body
+        FROM drafts dr
+        JOIN agent_decisions d ON d.id = dr.agent_decision_id
+        JOIN raw_emails e ON e.id = d.raw_email_id
+    """
+    params = []
+    if status is not None:
+        query += " WHERE dr.status = %s"
+        params.append(status)
+    query += " ORDER BY dr.created_at DESC LIMIT %s;"
+    params.append(limit)
+
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(query, tuple(params))
+            return cur.fetchall()
+
+
+def get_draft(draft_id):
+    """A single draft by id, no joins - used by the approval endpoints to
+    check whether a draft exists and what status it's currently in."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM drafts WHERE id = %s;", (draft_id,))
+            return cur.fetchone()
+
+
+def approve_draft(draft_id, reviewed_by):
+    """
+    Moves a draft from pending_approval to approved, stamping reviewed_at/
+    reviewed_by. The WHERE clause requires status = 'pending_approval', so
+    this is also what stops a draft from being approved twice (or approved
+    after already being rejected) - the UPDATE simply matches no row and
+    returns None. Callers that need to distinguish "no such draft" from
+    "already reviewed" should call get_draft() first.
+    """
     with get_connection() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT dr.*, d.category, d.urgency, d.suggested_action, d.summary,
-                       e.sender_email, e.subject, e.body
-                FROM drafts dr
-                JOIN agent_decisions d ON d.id = dr.agent_decision_id
-                JOIN raw_emails e ON e.id = d.raw_email_id
-                ORDER BY dr.created_at DESC
-                LIMIT %s;
+                UPDATE drafts
+                SET status = 'approved', reviewed_at = NOW(), reviewed_by = %s
+                WHERE id = %s AND status = 'pending_approval'
+                RETURNING *;
                 """,
-                (limit,),
+                (reviewed_by, draft_id),
             )
-            return cur.fetchall()
+            row = cur.fetchone()
+        conn.commit()
+    return row
+
+
+def reject_draft(draft_id, reviewed_by, rejection_reason=None):
+    """Same one-way-transition guarantee as approve_draft(): only succeeds
+    from pending_approval, so a draft can't be rejected twice or rejected
+    after already being approved."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                UPDATE drafts
+                SET status = 'rejected', reviewed_at = NOW(), reviewed_by = %s,
+                    rejection_reason = %s
+                WHERE id = %s AND status = 'pending_approval'
+                RETURNING *;
+                """,
+                (reviewed_by, rejection_reason, draft_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return row
 
 
 def list_decisions(limit=50):

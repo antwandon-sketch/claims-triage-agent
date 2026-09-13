@@ -7,9 +7,11 @@ from flask import Flask, jsonify
 
 import config
 from routes.ingestion import ingestion_bp
+from routes.review import review_bp
 
 app = Flask(__name__)
 app.register_blueprint(ingestion_bp)
+app.register_blueprint(review_bp)
 
 
 @app.route("/")
