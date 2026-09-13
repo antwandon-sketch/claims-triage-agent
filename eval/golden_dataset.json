@@ -568,5 +568,35 @@
     "expected_urgency": "high",
     "expected_suggested_action": "escalate_human",
     "notes": "Real risk of an actual coverage lapse - high urgency despite being a billing issue, not a claim."
+  },
+  {
+    "id": "case_58",
+    "split": "train",
+    "subject": "Need a copy of my ID card",
+    "body": "Can you send me a new copy of my auto insurance ID card for policy AU-40912? I misplaced mine.",
+    "expected_category": "document_request",
+    "expected_urgency": "low",
+    "expected_suggested_action": "auto_reply",
+    "notes": "PROMPT_VERSION v12 regression check: a single, uncomplicated ask with no secondary issue - additional_issues should come back empty, so suggested_action must NOT be forced to escalate_human. Matches v11 baseline behavior."
+  },
+  {
+    "id": "case_59",
+    "split": "train",
+    "subject": "Quick requests",
+    "body": "Could you send over a copy of my declarations page for policy HO-77410, I just want to keep a copy for my own records, and by the way my last payment posted twice this month and I want to make sure I don't get double charged going forward.",
+    "expected_category": "document_request",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "PROMPT_VERSION v12: bundles a routine document_request (a personal-use declarations page copy, which alone would be auto_reply) with a genuinely separate billing_issue (a duplicate charge) in flowing prose, no also/list marker. Tests that additional_issues captures the bundled billing issue and that apply_additional_issues_override() then forces escalate_human, overriding the primary's own auto_reply default."
+  },
+  {
+    "id": "case_60",
+    "split": "train",
+    "subject": "A few things",
+    "body": "I wanted to check on the status of claim CL-90142 since I haven't heard anything in over a week, and separately I never got the certificate of insurance I asked for last month for my landlord, and on top of that I think my agent quoted me the wrong premium when I renewed because it's about 50 dollars higher than what we discussed.",
+    "expected_category": "claim_status",
+    "expected_urgency": "medium",
+    "expected_suggested_action": "escalate_human",
+    "notes": "PROMPT_VERSION v12: bundles three genuinely separate issues in flowing prose with no also/list markers - a no-dispute claim_status check (would normally be auto_reply on its own), a document_request naming a third party (landlord), and a billing_issue disputing the renewal premium. Tests that additional_issues captures multiple distinct secondary issues at once (not just one) and that the override still forces escalate_human."
   }
 ]

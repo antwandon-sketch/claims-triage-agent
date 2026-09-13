@@ -36,15 +36,15 @@ this repo and immediately understand it's a distinct piece of work).
 | Thing | Status |
 |---|---|
 | Ingestion endpoint | `POST /inbound-email` - Flask, live-tested end to end against Neon + real Claude API |
-| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v11, confirmed shipped (committed and pushed 2026-08-01)** (v8/v9 built and reverted 2026-07-31; v10's extract-then-decide architecture solved coverage_question but introduced a root-caused billing_issue regression, not shipped; v11 = v10 unchanged except the coverage_question bullet's self-referential narrative text removed, which fixed the regression - see progress-log.md's v10 and v11 entries) |
+| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v12, code committed 2026-09-12 - live eval pass vs. v11 baseline NOT yet run (no API/DB credentials in the dev environment that made this change)** (v11 = v10 unchanged except the coverage_question bullet's self-referential narrative text removed; v12 = v11 plus `additional_issues`, closing the multi-issue architectural gap called out below - see Open Threads) |
 | Categories | 9: new_claim, claim_status, coverage_question, policy_change, billing_issue, sales_lead, complaint, document_request, other (expanded from an original 5 after v3 - see progress-log for why) |
-| Golden dataset | 57 hand-labeled cases (`eval/golden_dataset.json`), split 26 train / 31 holdout |
-| Latest full eval (v11, staged) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). |
+| Golden dataset | 60 hand-labeled cases (`eval/golden_dataset.json`), split 29 train / 31 holdout (case_58/59/60 added 2026-09-12 to cover additional_issues: zero/one/multiple) |
+| Latest full eval (v11, staged) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). **v12 has no eval run yet - see note above.** |
 | Stress test suite | `eval/run_stress_tests.py`, 28 cases across 4 categories (10 safety-critical + 6 prompt-injection + 6 urgency-manipulation + 6 multi-issue, the last added 2026-08-01). Safety-critical: 10/10 clean under v7/v10/v11, zero false negatives. Prompt-injection: 2/6 clean under v7 and v10 (confirmed identical via stash A/B, pre-existing), 3/6 clean under v11. Urgency-manipulation: 4/6 clean - a stated deadline, real or invented, pulls urgency up past what the content warrants in 2 of 6 cases; category/action stay correct. Multi-issue (v11, first real run): 5/6 clean on the primary-issue read - the one miss (mi_01) turned out to be an urgency judgment call unrelated to the trap it was designed to test, not evidence the fake second ask caused confusion. More importantly: **3 of 6 cases (mi_04, mi_05, mi_06) surfaced a real architectural gap, not a scoring miss** - each bundles a second, genuinely separate issue (a coverage question, a document need, a status check) into one flowing paragraph, and even though the primary-issue classification was correct in all 3, `classify_email`'s schema has exactly one category/urgency/action per email, so the second issue is silently dropped every time regardless of what the model does right. See the Open Threads section below. Full case-by-case detail in `eval/stress_tests.json` and the timestamped run in `eval_results/`. |
 | `safety_instruction` field | New classifier output field - populated only for active physical danger (gas leak, downed power line, CO alarm, active fire, someone trapped/injured), persisted to `agent_decisions.safety_instruction` |
 | `eval_runs` table | Tracks accuracy history across prompt versions in Postgres |
 | Database | Neon Postgres - separate database from ai-consulting-lab |
-| Tests | 33 passing (`pytest -v`) |
+| Tests | 40 passing (`pytest -v`) |
 
 **What's not built yet:** the system decides and logs, it doesn't act.
 No reply is actually sent for any action (`auto_reply`, `escalate_human`,
@@ -124,11 +124,24 @@ session's rounds.
   the agent could be trusted with genuinely multi-part customer email in
   production - not something a prompt edit alone can fix. Not addressed
   this round (out of scope - this task was stress-test coverage only).
-  **Deliberately deferred, Case W/X style.** If revisited: Option A was
-  selected (`additional_issues` as a simple list of
-  `{category, short_description}`, forces `escalate_human` if non-empty,
-  no per-issue urgency/action). Revisit trigger: same as Case W/X -
-  before any real client conversation, not before.
+  **Resolved 2026-09-12, PROMPT_VERSION v12.** Option A shipped as
+  designed: `additional_issues` is a list of `{category,
+  short_description}` in the `classify_email` schema; if non-empty,
+  `apply_additional_issues_override()` deterministically forces
+  `suggested_action` to `escalate_human`, overriding both the model's own
+  action and `score_coverage_question()`'s result - no per-issue
+  urgency/action. Unit tests added (`tests/test_classifier.py`, 7 cases:
+  the override function directly, plus `classify_email()` integration
+  confirming it wins over `score_coverage_question` and that zero
+  additional issues leaves v11 behavior untouched). Three new golden
+  cases added (case_58 zero / case_59 one / case_60 multiple). **Not yet
+  done: a live eval pass comparing v12 against the v11 baseline** - the
+  environment this was built in has no `ANTHROPIC_API_KEY`/`DATABASE_URL`,
+  so `eval/run_eval.py` and `eval/run_stress_tests.py` (which still has
+  the mi_04/05/06 multi-issue traps this was built to fix) haven't been
+  re-run against real API calls. Do that before calling this fully
+  verified, and also re-run the stress suite's multi_issue category to
+  confirm mi_04/05/06 now surface their secondary issue.
 - Once the agent build is complete, create a portfolio-style PDF
   summarizing the build process (evals, debugging, and observability
   narrative) for job-search/interview use.

@@ -14,6 +14,17 @@ billing_issue regression (case_56) via a controlled, interleaved,
 time-drift-ruled-out experiment - see progress-log.md's 2026-08-01
 entries. Removed; every operational instruction in the bullet (field
 names, worked-examples reference, override note) is unchanged from v10.
+
+PROMPT_VERSION v12: closes the multi-issue architectural gap documented
+in PROJECT.md's Open Threads (Case W/X style deferral, Option A). Adds
+additional_issues (a list of {category, short_description}) to the
+schema so a genuinely separate second ask bundled into one email is no
+longer silently dropped. apply_additional_issues_override() forces
+suggested_action to escalate_human whenever additional_issues is
+non-empty, overriding both the model's own action and
+score_coverage_question()'s result - deterministic post-processing,
+same pattern as the coverage_question fix, not a prompt-judgment call.
+No per-issue urgency/action, per the Option A design.
 """
 import time
 
@@ -203,6 +214,36 @@ CLASSIFY_EMAIL_TOOL = {
                     "investigated further yet (a passive, just-noticed observation)."
                 ),
             },
+            "additional_issues": {
+                "type": "array",
+                "description": (
+                    "Genuinely separate, substantive issues raised in the same email "
+                    "beyond the single primary category/urgency/action above - e.g. a "
+                    "billing question folded into a coverage question, or a document "
+                    "need folded into a claim_status check, with no \"also\"/list "
+                    "marker signaling it. Leave this an empty list if the email raises "
+                    "only one issue - do not manufacture a second entry, and do not "
+                    "split one issue into multiple sub-parts here."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "enum": [
+                                "new_claim", "claim_status", "coverage_question", "policy_change",
+                                "billing_issue", "sales_lead", "complaint", "document_request", "other",
+                            ],
+                            "description": "Category of this additional issue, same enum as the primary category.",
+                        },
+                        "short_description": {
+                            "type": "string",
+                            "description": "One short phrase describing this additional issue.",
+                        },
+                    },
+                    "required": ["category", "short_description"],
+                },
+            },
         },
         "required": ["category", "urgency", "summary", "suggested_action", "confidence", "rationale"],
     },
@@ -241,6 +282,20 @@ def score_coverage_question(
     if asks_feature_existence_only:
         return "auto_reply"
     return "request_more_info"
+
+
+def apply_additional_issues_override(decision: dict) -> dict:
+    """
+    Deterministic post-processing, not prompt-enforced (PROJECT.md Open
+    Threads, Case W/X style deferral, Option A): if additional_issues is
+    non-empty, force suggested_action to escalate_human, overriding
+    whatever action the model (or score_coverage_question, if the primary
+    category is coverage_question) assigned - a human needs to see both
+    asks, not just the primary one. No per-issue urgency/action.
+    """
+    if decision.get("additional_issues"):
+        decision["suggested_action"] = "escalate_human"
+    return decision
 
 SYSTEM_PROMPT = (
     "You triage inbound email for an independent insurance agency. Read the "
@@ -302,6 +357,15 @@ SYSTEM_PROMPT = (
     "- other: genuinely doesn't fit any category above - general questions "
     "unrelated to a specific policy, unsubscribe requests, job inquiries, "
     "and similar.\n\n"
+    "Some emails raise more than one genuinely separate, substantive issue "
+    "with no \"also\"/list marker signaling it - e.g. a billing question "
+    "folded into a coverage question, or a document need folded into a "
+    "claim_status check. Still pick one primary category/urgency/action "
+    "for the main issue as usual, and additionally list every other "
+    "distinct issue in additional_issues (category + a short description "
+    "each). Leave additional_issues empty for the ordinary case of one "
+    "issue per email - do not manufacture a second entry, and do not "
+    "split one issue into sub-parts.\n\n"
     "A general rule for auto_reply, regardless of category: auto_reply "
     "must never make or imply a coverage or liability determination - "
     "confirming or denying that a loss is covered, promising a "
@@ -378,6 +442,8 @@ def classify_email(subject: str, body: str) -> dict:
             bool(decision.get("asks_feature_existence_only", False)),
             bool(decision.get("cause_investigated_and_unresolved", False)),
         )
+
+    decision = apply_additional_issues_override(decision)
 
     return {
         "decision": decision,
