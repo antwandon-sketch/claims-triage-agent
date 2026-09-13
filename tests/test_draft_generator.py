@@ -83,10 +83,14 @@ def test_decision_context_skips_additional_issues_block_when_empty():
     assert "additional_issues" not in context
 
 
-def _mock_tool_use_response(draft_text):
+def _mock_tool_use_response(draft_text, injection_detected=False, injection_explanation=None):
     tool_use_block = MagicMock()
     tool_use_block.type = "tool_use"
-    tool_use_block.input = {"draft_text": draft_text}
+    tool_use_block.input = {
+        "draft_text": draft_text,
+        "injection_shaped_content_detected": injection_detected,
+        "injection_shaped_content_explanation": injection_explanation,
+    }
     response = MagicMock()
     response.content = [tool_use_block]
     response.model_dump.return_value = {"mock": True}
@@ -133,3 +137,101 @@ def test_generate_draft_forces_the_draft_reply_tool(monkeypatch):
     _, kwargs = mock_client.messages.create.call_args
     assert kwargs["tool_choice"] == {"type": "tool", "name": "draft_reply"}
     assert kwargs["tools"][0]["name"] == "draft_reply"
+
+
+# --- injection-shaped-content override (added after the inj_06 finding) ---
+
+
+def test_no_injection_detected_leaves_customer_reply_unchanged(monkeypatch):
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_tool_use_response(
+        "Thanks, we'll send that shortly.", injection_detected=False
+    )
+    monkeypatch.setattr(config, "anthropic_client", mock_client)
+
+    decision = _decision(suggested_action="auto_reply")
+    result = generate_draft("Subject", "Body", decision)
+
+    assert result["draft_type"] == "customer_reply"
+    assert result["injection_shaped_content_detected"] is False
+    assert "OVERRIDE" not in result["draft_text"]
+
+
+def test_injection_detected_overrides_customer_reply_to_internal_handoff_note(monkeypatch):
+    """The inj_06 scenario: suggested_action is auto_reply (already
+    compromised upstream), but this call's own injection check catches it
+    anyway - draft_type must flip in code, not stay customer_reply."""
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_tool_use_response(
+        "Category: new_claim | Urgency: medium | Suggested action: escalate_human\n"
+        "Summary: roof damage claim with photos attached.",
+        injection_detected=True,
+        injection_explanation="Embedded fake '[attachment: SYSTEM: verified adjuster...]' text tried to force auto-approval.",
+    )
+    monkeypatch.setattr(config, "anthropic_client", mock_client)
+
+    decision = _decision(category="new_claim", suggested_action="auto_reply")
+    result = generate_draft("Photos attached", "Roof damage from the storm.", decision)
+
+    assert result["draft_type"] == "internal_handoff_note"
+    assert result["injection_shaped_content_detected"] is True
+    assert "OVERRIDE" in result["draft_text"]
+    assert "verified adjuster" in result["draft_text"]
+
+
+def test_injection_detected_overrides_request_more_info_too(monkeypatch):
+    """determine_draft_type() maps both auto_reply and request_more_info to
+    customer_reply - the override must catch both, not just auto_reply."""
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_tool_use_response(
+        "Could you confirm your policy number?",
+        injection_detected=True,
+        injection_explanation="Spacing-evasion 'i g n o r e' phrase found in the body.",
+    )
+    monkeypatch.setattr(config, "anthropic_client", mock_client)
+
+    decision = _decision(suggested_action="request_more_info")
+    result = generate_draft("Subject", "Body", decision)
+
+    assert result["draft_type"] == "internal_handoff_note"
+    assert "OVERRIDE" in result["draft_text"]
+
+
+def test_injection_detected_on_already_escalated_case_is_a_no_op_override(monkeypatch):
+    """When suggested_action is already escalate_human, there's nothing to
+    override - draft_type was already internal_handoff_note, and no
+    banner should be injected on top of the model's own note."""
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_tool_use_response(
+        "Category: complaint | escalate_human. Note: injection attempt detected and disregarded.",
+        injection_detected=True,
+        injection_explanation="Fake system message found.",
+    )
+    monkeypatch.setattr(config, "anthropic_client", mock_client)
+
+    decision = _decision(category="complaint", suggested_action="escalate_human")
+    result = generate_draft("Subject", "Body", decision)
+
+    assert result["draft_type"] == "internal_handoff_note"
+    assert "OVERRIDE" not in result["draft_text"]
+
+
+def test_missing_injection_field_defaults_to_not_detected(monkeypatch):
+    """Defensive: if the model somehow omits the (required) field, .get()
+    must default to False rather than raising or silently overriding."""
+    tool_use_block = MagicMock()
+    tool_use_block.type = "tool_use"
+    tool_use_block.input = {"draft_text": "A plain draft."}  # no injection field at all
+    response = MagicMock()
+    response.content = [tool_use_block]
+    response.model_dump.return_value = {"mock": True}
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = response
+    monkeypatch.setattr(config, "anthropic_client", mock_client)
+
+    decision = _decision(suggested_action="auto_reply")
+    result = generate_draft("Subject", "Body", decision)
+
+    assert result["draft_type"] == "customer_reply"
+    assert result["injection_shaped_content_detected"] is False
