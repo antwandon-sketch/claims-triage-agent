@@ -1573,3 +1573,100 @@ reported.
 docstrings), .env (PROMPT_VERSION=v11), and this log entry are all
 sitting uncommitted in the working tree, exactly as v10's were. Nothing
 committed or pushed this round or any prior round in this investigation.
+
+## 2026-09-12 - v12 live eval pass: additional_issues confirmed working, action-accuracy dip investigated, case_56's v11 "fix" corrected to a lucky draw, not a durable result
+
+v12 (commit 35fcbae) shipped `additional_issues` with no live eval run
+behind it - the dev environment that built it had no
+`ANTHROPIC_API_KEY`/`DATABASE_URL` (see PROJECT.md's Open Threads and
+the commit message). This session had real credentials and ran the
+eval and stress suites for real, per PROJECT.md's own "always check
+actual expected-vs-predicted" rule.
+
+**`run_eval.py`, full 60-case suite, 3 runs:** category 96.7% (all 3),
+urgency 90.0%/91.7%/90.0%, action 95.0% (all 3, 57/60) - category and
+urgency land inside the v11 baseline (96.5-98.2% / 89.5-91.2%), but
+action is below v11's 96.5% floor in every run. Same 3 cases miss every
+time: case_05, case_44, case_56.
+
+**`run_stress_tests.py` + direct `classify_email()` calls on
+mi_04/mi_05/mi_06 (3 runs each):** all three now correctly populate
+`additional_issues` with the right secondary category and a description
+matching the hand-labeled `secondary_issue_notes`, and the primary
+category/urgency/action stays correct in every run - Gap 1 is
+confirmed fixed:
+
+| Case | Primary (all 3 runs) | additional_issues category |
+|---|---|---|
+| mi_04 | billing_issue/medium/escalate_human | coverage_question |
+| mi_05 | policy_change/medium/escalate_human | document_request |
+| mi_06 | complaint/medium/escalate_human | claim_status |
+
+Note: `run_stress_tests.py`'s own `score_stress_case()` was never
+updated for v12 - it still has no code path that reads
+`predicted_decision["additional_issues"]`, so its printed "architectural
+gap" section is stale reporting left over from before this field
+existed. The table above came from calling `classify_email()` directly,
+not from the stress harness's report.
+
+**Isolating the action-accuracy dip: stash A/B (detached HEAD at
+d34212d, true v11) plus a hybrid config.** d34212d is 35fcbae's direct
+parent - nothing was actually uncommitted to stash, since v12 was
+already a real commit, so a detached-HEAD checkout of d34212d served
+the same purpose as an A/B stash would have.
+
+*case_05 and case_44: pre-existing at v11, not new.* Both miss
+identically under true v11 (3 runs), v12 (multiple runs), and a hybrid
+config (below): case_05 (claim_status) expects `escalate_human`,
+consistently gets `auto_reply`; case_44 (other/sales_lead boundary)
+expects `other`/`auto_reply`, consistently gets `sales_lead`/
+`escalate_human`. Neither was called out in this file's v11 validation
+entry above - they were latent, unreported misses, not something v12
+introduced.
+
+*case_56: the real surprise.* The v11 entry above documents "0 misses
+across 3 full-suite runs" and calls it "the first time across five
+rounds of investigation that case_56 has been clean in every single
+run of a batch." Re-running case_56 fresh this session, at true v11
+(d34212d), did **not** reproduce that: 3 original runs gave OK/MISS/MISS,
+and 4 more interleaved runs against v12 gave OK/MISS/OK/MISS -
+**combined v11: 3/7 correct (43%)**. Combined v12 (original 3-run eval
++ 1 reconfirm run + 4 interleaved): **2/8 correct (25%)**. Direction
+favors v11, but n=7 vs n=8 on a binary outcome isn't a statistically
+solid basis for "v12 broke it" - it's well within the noise band this
+exact case has shown across every prior round (see the five 2026-08-01
+diagnostic entries above, one of which needed an 80-call 4x2x10
+factorial to get a clean read). **Correction to the v11 entry above:
+"0/3 misses" was very likely a lucky draw on a case that has never
+actually been stable, not a durable fix** - the original diagnostic
+entries and their root-cause conclusions (the self-referential
+narrative-text mechanism) are not being retracted, since that mechanism
+was validated far more rigorously (interleaving, factorial, time-drift
+control) than this session's 15 calls could challenge - but the "fixed,
+0/3 clean" characterization of the outcome does not hold up under a
+second look and should not be relied on as durable.
+
+*Schema-vs-prompt isolation (hybrid config):* to separate "the
+`additional_issues` field exists in the tool schema" from "the model is
+told about it in prose," classifier.py's `SYSTEM_PROMPT` was edited
+in-place to remove only the new multi-issue paragraph (verified via
+`git diff` that this was the only change - schema, `CLASSIFY_EMAIL_TOOL`,
+and `apply_additional_issues_override()` all stayed exactly as v12
+shipped them), then reverted via `git checkout -- classifier.py` once
+testing was done. case_56 under this hybrid: 1/4 correct (25%) - matches
+v12's rate, not v11's. Weak signal, given n=4, but if there's a real
+effect at all, this points at the schema field's mere presence rather
+than the prompt language describing it - worth keeping in mind if this
+gets a proper large-sample follow-up someday, but not conclusive on its
+own.
+
+**Net assessment:** v12's `additional_issues` feature itself works
+correctly and did not damage the multi-issue cases' primary reads. The
+60-case eval's 95.0% action score is fully explained by two always-broken
+cases (case_05, case_44, now tracked in PROJECT.md's Open Threads) plus
+case_56 landing on the wrong side of a coin-flip it has apparently
+always been. Not treated as a blocking v12 regression. A confident,
+final answer on whether the schema field itself has any real effect on
+case_56 would need a much larger interleaved sample (the ~10x-per-arm
+bar this project has used before for this exact case) - not done this
+round, flagged as future work if it's ever prioritized again.

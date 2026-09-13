@@ -11,6 +11,12 @@ Phase 3 adds eval_runs (score history) here. The golden dataset itself
 not a table - that's the normal convention for eval test data, since you
 want to review changes to your test cases the same way you'd review a diff
 to any other test file, not by querying a database.
+
+drafts (added alongside draft_generator.py): the draft text produced from
+an agent_decisions row - a customer_reply or an internal_handoff_note (see
+draft_generator.py's module docstring). This table only stores text for a
+human to review; there is still no send capability anywhere in this
+codebase.
 """
 import json
 import psycopg2
@@ -83,6 +89,21 @@ def init_db():
                     action_accuracy REAL NOT NULL,
                     confusion_matrix JSONB,
                     notes TEXT
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS drafts (
+                    id SERIAL PRIMARY KEY,
+                    agent_decision_id INTEGER NOT NULL REFERENCES agent_decisions(id),
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    draft_type TEXT NOT NULL,
+                    draft_text TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL,
+                    model_name TEXT NOT NULL,
+                    latency_ms INTEGER,
+                    raw_model_response JSONB
                 );
                 """
             )
@@ -177,6 +198,53 @@ def list_eval_runs(limit=20):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 "SELECT * FROM eval_runs ORDER BY run_at DESC LIMIT %s;",
+                (limit,),
+            )
+            return cur.fetchall()
+
+
+def save_draft(agent_decision_id, draft_type, draft_text, prompt_version, model_name, latency_ms, raw_model_response):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO drafts (
+                    agent_decision_id, draft_type, draft_text,
+                    prompt_version, model_name, latency_ms, raw_model_response
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id;
+                """,
+                (
+                    agent_decision_id,
+                    draft_type,
+                    draft_text,
+                    prompt_version,
+                    model_name,
+                    latency_ms,
+                    json.dumps(raw_model_response),
+                ),
+            )
+            draft_id = cur.fetchone()[0]
+        conn.commit()
+    return draft_id
+
+
+def list_drafts(limit=50):
+    """Most recent drafts first, joined back to the decision and original
+    email so a reviewer has full context without a second lookup."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT dr.*, d.category, d.urgency, d.suggested_action, d.summary,
+                       e.sender_email, e.subject, e.body
+                FROM drafts dr
+                JOIN agent_decisions d ON d.id = dr.agent_decision_id
+                JOIN raw_emails e ON e.id = d.raw_email_id
+                ORDER BY dr.created_at DESC
+                LIMIT %s;
+                """,
                 (limit,),
             )
             return cur.fetchall()

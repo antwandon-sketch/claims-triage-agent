@@ -5,7 +5,7 @@ to get full context immediately. For the detailed, chronological build
 history (useful for understanding *why* a decision was made, not just
 what the current state is), see `progress-log.md`.
 
-Last updated: 2026-08-01
+Last updated: 2026-09-12
 
 ---
 
@@ -36,10 +36,11 @@ this repo and immediately understand it's a distinct piece of work).
 | Thing | Status |
 |---|---|
 | Ingestion endpoint | `POST /inbound-email` - Flask, live-tested end to end against Neon + real Claude API |
-| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v12, code committed 2026-09-12 - live eval pass vs. v11 baseline NOT yet run (no API/DB credentials in the dev environment that made this change)** (v11 = v10 unchanged except the coverage_question bullet's self-referential narrative text removed; v12 = v11 plus `additional_issues`, closing the multi-issue architectural gap called out below - see Open Threads) |
+| Classifier | Claude Sonnet 5, forced structured output via tool use, **PROMPT_VERSION v12, code committed 2026-09-12, live eval pass vs. v11 baseline completed 2026-09-12 - within range on category/urgency, see Open Threads for the case_05/case_44/case_56 investigation** (v11 = v10 unchanged except the coverage_question bullet's self-referential narrative text removed; v12 = v11 plus `additional_issues`, closing the multi-issue architectural gap called out below - see Open Threads) |
 | Categories | 9: new_claim, claim_status, coverage_question, policy_change, billing_issue, sales_lead, complaint, document_request, other (expanded from an original 5 after v3 - see progress-log for why) |
 | Golden dataset | 60 hand-labeled cases (`eval/golden_dataset.json`), split 29 train / 31 holdout (case_58/59/60 added 2026-09-12 to cover additional_issues: zero/one/multiple) |
-| Latest full eval (v11, staged) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). **v12 has no eval run yet - see note above.** |
+| Latest full eval (v11 baseline) | Category 96.5-98.2%, urgency 89.5-91.2%, action 96.5-98.2% across 3 runs - matches or exceeds v7's 96.5/93.0/96.5 baseline on category and action; urgency within already-established normal variance. See progress-log.md's v11 entry for per-run detail and the one new residual finding (case_54, urgency-only, no action/routing impact). |
+| v12 eval (2026-09-12, 60 cases) | Category 96.7%, urgency 90.0-91.7%, action 95.0% across 3 runs. Category/urgency land within the v11 range above. Action's 95.0% is below the v11 floor on the surface, but investigation (stash A/B + hybrid) traced it to case_05/case_44 (pre-existing at v11 too, not new) plus case_56's known flakiness (43% correct at v11 across 7 fresh runs, not the "0/3" the original v11 write-up recorded) - not a clean v12-caused regression. See progress-log.md's 2026-09-12 entry for the full data. |
 | Stress test suite | `eval/run_stress_tests.py`, 28 cases across 4 categories (10 safety-critical + 6 prompt-injection + 6 urgency-manipulation + 6 multi-issue, the last added 2026-08-01). Safety-critical: 10/10 clean under v7/v10/v11, zero false negatives. Prompt-injection: 2/6 clean under v7 and v10 (confirmed identical via stash A/B, pre-existing), 3/6 clean under v11. Urgency-manipulation: 4/6 clean - a stated deadline, real or invented, pulls urgency up past what the content warrants in 2 of 6 cases; category/action stay correct. Multi-issue (v11, first real run): 5/6 clean on the primary-issue read - the one miss (mi_01) turned out to be an urgency judgment call unrelated to the trap it was designed to test, not evidence the fake second ask caused confusion. More importantly: **3 of 6 cases (mi_04, mi_05, mi_06) surfaced a real architectural gap, not a scoring miss** - each bundles a second, genuinely separate issue (a coverage question, a document need, a status check) into one flowing paragraph, and even though the primary-issue classification was correct in all 3, `classify_email`'s schema has exactly one category/urgency/action per email, so the second issue is silently dropped every time regardless of what the model does right. See the Open Threads section below. Full case-by-case detail in `eval/stress_tests.json` and the timestamped run in `eval_results/`. |
 | `safety_instruction` field | New classifier output field - populated only for active physical danger (gas leak, downed power line, CO alarm, active fire, someone trapped/injured), persisted to `agent_decisions.safety_instruction` |
 | `eval_runs` table | Tracks accuracy history across prompt versions in Postgres |
@@ -142,6 +143,29 @@ session's rounds.
   re-run against real API calls. Do that before calling this fully
   verified, and also re-run the stress suite's multi_issue category to
   confirm mi_04/05/06 now surface their secondary issue.
+  **Verified 2026-09-12, live eval pass complete (3 runs, 60 cases):**
+  category 96.7% and urgency 90.0-91.7% both land within the v11
+  baseline range. `additional_issues` itself works correctly and
+  stably - mi_04/mi_05/mi_06 all surface the right secondary category
+  (`coverage_question`, `document_request`, `claim_status`
+  respectively) across 3 direct `classify_email()` calls each, with the
+  primary category/urgency/action also correct every time. See
+  progress-log.md's 2026-09-12 entry for full per-case detail and the
+  case_05/case_44/case_56 investigation below.
+- **New: case_05 and case_44, pre-existing action misses, not caused by
+  v12.** Found while investigating v12's action accuracy (95.0%, 57/60,
+  vs. v11's 96.5-98.2% baseline range) - isolated via git-stash-style
+  A/B (detached HEAD at d34212d, true v11) plus a hybrid config (v12's
+  `additional_issues` schema/override kept, v11's `SYSTEM_PROMPT` text
+  restored). Both cases miss identically under v11, v12, and the hybrid:
+  **case_05** (claim_status) expects `escalate_human`, consistently gets
+  `auto_reply`; **case_44** (other/sales_lead boundary) expects
+  category `other`/action `auto_reply`, consistently gets
+  `sales_lead`/`escalate_human`. Neither is mentioned in v11's original
+  validation write-up, so these were latent, unreported misses rather
+  than something v12 introduced. Not blocking - tracked here for a
+  future prompt pass. See progress-log.md's 2026-09-12 entry for the
+  full stash A/B data.
 - Once the agent build is complete, create a portfolio-style PDF
   summarizing the build process (evals, debugging, and observability
   narrative) for job-search/interview use.
